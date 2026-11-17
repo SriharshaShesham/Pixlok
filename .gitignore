@@ -1,0 +1,10 @@
+build/
+.DS_Store
+
+# Private notes and local tool settings, never published
+reports/
+research_notes/
+/*.md
+!/README.md
+/.*/
+!/.github/
