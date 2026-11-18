@@ -93,7 +93,8 @@ brew install --cask SriharshaShesham/tap/pixlok
 
 The cask removes the macOS quarantine flag after installing, so Pixlok opens straight away.
 
-Pixlok was previously called Picsl; existing Homebrew installs move to Pixlok on the next `brew upgrade`.
+Pixlok was previously called Picsl. If you installed Picsl with Homebrew, switch over once with
+`brew update && brew upgrade --cask SriharshaShesham/tap/pixlok`; after that, normal `brew upgrade` keeps it current.
 Your settings carry over. If you had made Picsl your default viewer, click **Make default viewer** in Settings
 again, because macOS records the default app per app.
 
