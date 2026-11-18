@@ -2,23 +2,24 @@ import AppKit
 import SwiftUI
 
 /// Headless checks for scripted verification (no UI):
-///   Picsl --selftest-list <folder>
+///   Pixlok --selftest-list <folder>
 ///       Prints the folder's viewable files, one path per line, in the order the
-///       viewer would step through them with the user's current settings.
-///   Picsl --selftest-list-sorted <folder> <sortKey> <asc|desc>
+///       viewer would step through them with the user's current settings (read directly from the
+///       app's preferences; the first-launch settings migration is not run).
+///   Pixlok --selftest-list-sorted <folder> <sortKey> <asc|desc>
 ///       Same, with an explicit sort (dateModified|dateCreated|name|size|type) using a
 ///       throwaway preferences suite so the real settings are untouched.
-///   Picsl --selftest-snapshot-settings <out.png>
+///   Pixlok --selftest-snapshot-settings <out.png>
 ///       Renders the Settings view offscreen to a PNG (visual check without screen recording).
-///   Picsl --selftest-edit <file> <recipe-json>
+///   Pixlok --selftest-edit <file> <recipe-json>
 ///       Saves an edit IN PLACE (use scratch copies!) via EditSaveService and prints the saved and
 ///       original URLs plus size/type/mean colour of the result. See SaveSelfTest for the JSON keys.
-///   Picsl --selftest-revert <file>
+///   Pixlok --selftest-revert <file>
 ///       Reverts an edited file to its original/ copy and prints the restored URL.
-///   Picsl --selftest-originals <empty scratch folder>
+///   Pixlok --selftest-originals <empty scratch folder>
 ///       Builds fixtures there and checks the original/ ownership rules (a user's own Original/
 ///       folder, stale backups of deleted files, re-save, viewer delete, failed save).
-///   Picsl --selftest-math
+///   Pixlok --selftest-math
 ///       Crop-drag, flip/straighten and scroll-zoom clamp math.
 @MainActor
 enum SelfTest {
@@ -27,7 +28,7 @@ enum SelfTest {
         switch args[1] {
         case "--selftest-list":
             guard args.count >= 3 else { fail("usage: --selftest-list <folder>") }
-            list(folder: args[2], settings: .shared)
+            list(folder: args[2], settings: AppSettings(defaults: .standard))
         case "--selftest-list-sorted":
             guard args.count >= 5 else { fail("usage: --selftest-list-sorted <folder> <sortKey> <asc|desc>") }
             guard let key = SortKey.allCases.first(where: { $0.rawValue.lowercased() == args[3].lowercased() }) else {
@@ -35,7 +36,7 @@ enum SelfTest {
             }
             let order = args[4].lowercased()
             guard order == "asc" || order == "desc" else { fail("order must be 'asc' or 'desc'") }
-            let suite = "Picsl.selftest.\(UUID().uuidString)"
+            let suite = "Pixlok.selftest.\(UUID().uuidString)"
             guard let defaults = UserDefaults(suiteName: suite) else { fail("cannot create preferences suite") }
             let settings = AppSettings(defaults: defaults)
             settings.sortKey = key
@@ -73,8 +74,17 @@ enum SelfTest {
         var out = ""
         for item in browser.items { out += item.path + "\n" }
         FileHandle.standardOutput.write(Data(out.utf8))
-        if let cleanupSuite { UserDefaults.standard.removePersistentDomain(forName: cleanupSuite) }
+        if let cleanupSuite { removeSuite(cleanupSuite) }
         exit(0)
+    }
+
+    /// Clears a throwaway preferences suite and deletes its (now empty) plist so test runs leave nothing behind.
+    private static func removeSuite(_ name: String) {
+        UserDefaults.standard.removePersistentDomain(forName: name)
+        UserDefaults(suiteName: name)?.synchronize()
+        let plist = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Preferences/\(name).plist")
+        try? FileManager.default.removeItem(at: plist)
     }
 
     private static func snapshotSettings(to path: String) -> Never {

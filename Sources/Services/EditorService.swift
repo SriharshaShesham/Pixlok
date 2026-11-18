@@ -6,7 +6,7 @@ enum EditorService {
 
     // MARK: - Discovery
 
-    /// Apps that can open `url`, best match first, excluding Picsl itself, without duplicates.
+    /// Apps that can open `url`, best match first, excluding Pixlok itself, without duplicates.
     static func installedApps(for url: URL) -> [URL] {
         filtered(NSWorkspace.shared.urlsForApplications(toOpen: url))
     }

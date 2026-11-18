@@ -1,4 +1,4 @@
-// make-icon.swift - draws the Picsl app icon and builds Resources/AppIcon.icns.
+// make-icon.swift - draws the Pixlok app icon and builds Resources/AppIcon.icns.
 //
 // Usage (from the repo root, after `./build.sh typecheck` so build/vfs-overlay.yaml exists):
 //   swiftc -O tools/make-icon.swift -o build/make-icon \

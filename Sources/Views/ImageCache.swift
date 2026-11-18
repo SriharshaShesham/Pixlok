@@ -88,7 +88,7 @@ final class ImageCache {
         cache.totalCostLimit = 768 * 1024 * 1024
         cache.countLimit = 64
         // A saved / reverted edit rewrote a file: drop its decodes (same URL, new pixels).
-        NotificationCenter.default.addObserver(forName: Notification.Name("Picsl.fileDidChange"),
+        NotificationCenter.default.addObserver(forName: Notification.Name("Pixlok.fileDidChange"),
                                                object: nil, queue: .main) { [weak self] note in
             var urls = (note.userInfo?["urls"] as? [URL]) ?? []
             if let url = note.object as? URL { urls.append(url) }

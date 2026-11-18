@@ -7,7 +7,7 @@ import Combine
 @MainActor
 final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation, ViewerCommandHandler,
     EditCommandHandler {
-    static let autosaveName = "PicslWindow"
+    static let autosaveName = "PixlokWindow"
 
     let settings: AppSettings
     let model = ViewerWindowModel()
@@ -45,7 +45,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         window.collectionBehavior.insert(.fullScreenPrimary)
-        window.title = "Picsl"
+        window.title = "Pixlok"
         super.init(window: window)
         window.delegate = self
 
@@ -138,7 +138,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
             window?.title = url.lastPathComponent
             window?.representedURL = url
         } else {
-            window?.title = model.browser?.folder.lastPathComponent ?? "Picsl"
+            window?.title = model.browser?.folder.lastPathComponent ?? "Pixlok"
             window?.representedURL = nil
         }
         slideshow?.itemDidChange()
@@ -250,37 +250,37 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     // MARK: - Menu actions (reached through the responder chain)
 
-    @objc func picslOpenInPrimaryEditor(_ sender: Any?) { viewerOpenInPrimaryEditor() }
-    @objc func picslOpenWithApp(_ sender: Any?) {
+    @objc func pixlokOpenInPrimaryEditor(_ sender: Any?) { viewerOpenInPrimaryEditor() }
+    @objc func pixlokOpenWithApp(_ sender: Any?) {
         if let app = (sender as? NSMenuItem)?.representedObject as? URL { viewerOpen(with: app) }
     }
-    @objc func picslChooseApplication(_ sender: Any?) { viewerChooseApplication() }
-    @objc func picslShowInFinder(_ sender: Any?) {
+    @objc func pixlokChooseApplication(_ sender: Any?) { viewerChooseApplication() }
+    @objc func pixlokShowInFinder(_ sender: Any?) {
         if let url = currentURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
     }
-    @objc func picslMoveToTrash(_ sender: Any?) { if !isEditing { viewerRequestTrash() } }
-    @objc func picslZoomIn(_ sender: Any?) { if canTransform && !isEditing { state.zoomIn() } }
-    @objc func picslZoomOut(_ sender: Any?) { if canTransform && !isEditing { state.zoomOut() } }
-    @objc func picslActualSize(_ sender: Any?) { if canTransform && !isEditing { state.actualSize() } }
-    @objc func picslZoomToFit(_ sender: Any?) { if canTransform && !isEditing { state.fit() } }
-    @objc func picslRotateLeft(_ sender: Any?) {
+    @objc func pixlokMoveToTrash(_ sender: Any?) { if !isEditing { viewerRequestTrash() } }
+    @objc func pixlokZoomIn(_ sender: Any?) { if canTransform && !isEditing { state.zoomIn() } }
+    @objc func pixlokZoomOut(_ sender: Any?) { if canTransform && !isEditing { state.zoomOut() } }
+    @objc func pixlokActualSize(_ sender: Any?) { if canTransform && !isEditing { state.actualSize() } }
+    @objc func pixlokZoomToFit(_ sender: Any?) { if canTransform && !isEditing { state.fit() } }
+    @objc func pixlokRotateLeft(_ sender: Any?) {
         if let session = editSession { if session.source != nil { session.rotate(clockwise: false) } }
         else if canTransform { state.rotateLeft() }
     }
-    @objc func picslRotateRight(_ sender: Any?) {
+    @objc func pixlokRotateRight(_ sender: Any?) {
         if let session = editSession { if session.source != nil { session.rotate(clockwise: true) } }
         else if canTransform { state.rotateRight() }
     }
-    @objc func picslToggleInfo(_ sender: Any?) { if currentURL != nil && !isEditing { state.showInfo.toggle() } }
-    @objc func picslToggleSlideshow(_ sender: Any?) { if !isEditing { viewerToggleSlideshow() } }
-    @objc func picslNext(_ sender: Any?) { if !isEditing { model.browser?.next() } }
-    @objc func picslPrevious(_ sender: Any?) { if !isEditing { model.browser?.previous() } }
-    @objc func picslFirst(_ sender: Any?) { if !isEditing { model.browser?.first() } }
-    @objc func picslLast(_ sender: Any?) { if !isEditing { model.browser?.last() } }
-    @objc func picslEditImage(_ sender: Any?) { editBegin() }
-    @objc func picslSaveEdits(_ sender: Any?) { editSave() }
-    @objc func picslCancelEditing(_ sender: Any?) { editRequestCancel() }
-    @objc func picslRevertToOriginal(_ sender: Any?) { editRequestRevert() }
+    @objc func pixlokToggleInfo(_ sender: Any?) { if currentURL != nil && !isEditing { state.showInfo.toggle() } }
+    @objc func pixlokToggleSlideshow(_ sender: Any?) { if !isEditing { viewerToggleSlideshow() } }
+    @objc func pixlokNext(_ sender: Any?) { if !isEditing { model.browser?.next() } }
+    @objc func pixlokPrevious(_ sender: Any?) { if !isEditing { model.browser?.previous() } }
+    @objc func pixlokFirst(_ sender: Any?) { if !isEditing { model.browser?.first() } }
+    @objc func pixlokLast(_ sender: Any?) { if !isEditing { model.browser?.last() } }
+    @objc func pixlokEditImage(_ sender: Any?) { editBegin() }
+    @objc func pixlokSaveEdits(_ sender: Any?) { editSave() }
+    @objc func pixlokCancelEditing(_ sender: Any?) { editRequestCancel() }
+    @objc func pixlokRevertToOriginal(_ sender: Any?) { editRequestRevert() }
 
     var isEditing: Bool { editSession != nil }
 
@@ -301,36 +301,36 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         let hasFile = currentURL != nil
         let editing = isEditing
         switch item.action {
-        case #selector(picslZoomIn(_:)), #selector(picslZoomOut(_:)), #selector(picslActualSize(_:)),
-             #selector(picslZoomToFit(_:)):
+        case #selector(pixlokZoomIn(_:)), #selector(pixlokZoomOut(_:)), #selector(pixlokActualSize(_:)),
+             #selector(pixlokZoomToFit(_:)):
             return canTransform && !editing
-        case #selector(picslRotateLeft(_:)), #selector(picslRotateRight(_:)):
+        case #selector(pixlokRotateLeft(_:)), #selector(pixlokRotateRight(_:)):
             if let session = editSession { return session.source != nil && !session.isSaving }
             return canTransform
-        case #selector(picslToggleInfo(_:)):
+        case #selector(pixlokToggleInfo(_:)):
             item.title = state.showInfo ? "Hide Info" : "Show Info"
             return hasFile && !editing
-        case #selector(picslToggleSlideshow(_:)):
+        case #selector(pixlokToggleSlideshow(_:)):
             item.title = state.isSlideshowRunning ? "Stop Slideshow" : "Start Slideshow"
             return hasFile && !editing
-        case #selector(picslNext(_:)), #selector(picslPrevious(_:)), #selector(picslFirst(_:)), #selector(picslLast(_:)):
+        case #selector(pixlokNext(_:)), #selector(pixlokPrevious(_:)), #selector(pixlokFirst(_:)), #selector(pixlokLast(_:)):
             return (model.browser?.count ?? 0) > 1 && !editing
-        case #selector(picslMoveToTrash(_:)):
+        case #selector(pixlokMoveToTrash(_:)):
             return hasFile && !editing
-        case #selector(picslEditImage(_:)):
+        case #selector(pixlokEditImage(_:)):
             return !editing && !state.isSlideshowRunning && canEditCurrent
-        case #selector(picslSaveEdits(_:)):
+        case #selector(pixlokSaveEdits(_:)):
             return editSession?.canSave ?? false
-        case #selector(picslCancelEditing(_:)):
+        case #selector(pixlokCancelEditing(_:)):
             return editing && editSession?.isSaving != true
-        case #selector(picslRevertToOriginal(_:)):
+        case #selector(pixlokRevertToOriginal(_:)):
             guard let url = currentURL, editSession?.isSaving != true else { return false }
             return EditSaveService.hasOriginal(for: url)
-        case #selector(picslOpenInPrimaryEditor(_:)), #selector(picslOpenWithApp(_:)), #selector(picslChooseApplication(_:)):
+        case #selector(pixlokOpenInPrimaryEditor(_:)), #selector(pixlokOpenWithApp(_:)), #selector(pixlokChooseApplication(_:)):
             // Another app changing the file under unsaved edits would make Save apply them to
             // content the user never previewed.
             return hasFile && !editing
-        case #selector(picslShowInFinder(_:)):
+        case #selector(pixlokShowInFinder(_:)):
             return hasFile
         default:
             return true

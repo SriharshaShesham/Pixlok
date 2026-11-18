@@ -156,7 +156,7 @@ enum SVGIntrinsicSize {
     }
 }
 
-/// Wrapper HTML page. Layout is driven from Swift through `picslApply(mode, scale, turns[, ax, ay])`;
+/// Wrapper HTML page. Layout is driven from Swift through `pixlokApply(mode, scale, turns[, ax, ay])`;
 /// `ax`/`ay` (CSS px from the viewport's top-left) anchor a zoom so that point stays put.
 enum SVGPage {
     static func html(svgBase64: String, size: CGSize) -> String {
@@ -179,7 +179,7 @@ enum SVGPage {
           var W=\(size.width), H=\(size.height);
           var st={mode:'fit',scale:1,turns:0};
           var body=document.body, stage=document.getElementById('stage'), img=document.getElementById('img');
-          function post(m){try{window.webkit.messageHandlers.picsl.postMessage(m);}catch(e){}}
+          function post(m){try{window.webkit.messageHandlers.pixlok.postMessage(m);}catch(e){}}
           function layout(keepCenter, anchor){
             var fx=0.5, fy=0.5, r0=null;
             if(anchor){ r0=stage.getBoundingClientRect(); if(!(r0.width>0&&r0.height>0)) r0=null; }
@@ -208,7 +208,7 @@ enum SVGPage {
             body.classList.toggle('pannable', sw>vw+0.5||sh>vh+0.5);
             post({type:'scale',value:s,fit:(isFinite(fitS)&&fitS>0)?fitS:1});
           }
-          window.picslApply=function(mode,scale,turns,ax,ay){
+          window.pixlokApply=function(mode,scale,turns,ax,ay){
             st.mode=mode; st.scale=scale; st.turns=((turns%4)+4)%4;
             layout(mode!=='fit', (mode!=='fit'&&typeof ax==='number'&&typeof ay==='number')?{x:ax,y:ay}:null);
           };
@@ -373,12 +373,12 @@ struct SVGWebRepresentable: NSViewRepresentable {
             appliedTurns = turns
             let js: String
             switch state.zoom {
-            case .fit: js = "window.picslApply&&picslApply('fit',1,\(turns))"
+            case .fit: js = "window.pixlokApply&&pixlokApply('fit',1,\(turns))"
             case .scale(let s):
                 if let a = anchor, a.x.isFinite, a.y.isFinite {
-                    js = "window.picslApply&&picslApply('scale',\(Double(s)),\(turns),\(Double(a.x)),\(Double(a.y)))"
+                    js = "window.pixlokApply&&pixlokApply('scale',\(Double(s)),\(turns),\(Double(a.x)),\(Double(a.y)))"
                 } else {
-                    js = "window.picslApply&&picslApply('scale',\(Double(s)),\(turns))"
+                    js = "window.pixlokApply&&pixlokApply('scale',\(Double(s)),\(turns))"
                 }
             }
             webView.evaluateJavaScript(js, completionHandler: nil)
@@ -411,7 +411,7 @@ struct SVGWebRepresentable: NSViewRepresentable {
         let config = WKWebViewConfiguration()
         let proxy = MessageProxy()
         proxy.target = context.coordinator
-        config.userContentController.add(proxy, name: "picsl")
+        config.userContentController.add(proxy, name: "pixlok")
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
         config.suppressesIncrementalRendering = true
@@ -458,6 +458,6 @@ struct SVGWebRepresentable: NSViewRepresentable {
         webView.navigationDelegate = nil
         webView.onZoomFactor = nil
         webView.onScrollZoom = nil
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: "picsl")
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "pixlok")
     }
 }

@@ -40,7 +40,7 @@ struct ViewerEmptyWindowView: View {
         VStack(spacing: 0) {
             ZStack {
                 ViewerWindowDragArea()
-                Text("Picsl")
+                Text("Pixlok")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(ViewerPalette.primaryText)
                     .allowsHitTesting(false)

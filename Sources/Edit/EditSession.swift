@@ -7,7 +7,7 @@ extension Notification.Name {
     /// Posted (object: the changed file URL; userInfo["urls"]: [URL] of every affected path)
     /// after an edit was saved or reverted, so caches can drop stale decodes.
     /// Same string as the pipeline's `fileDidChange`, spelled out to avoid a compile-time dependency.
-    static let editFileDidChange = Notification.Name("Picsl.fileDidChange")
+    static let editFileDidChange = Notification.Name("Pixlok.fileDidChange")
 }
 
 /// What the preview currently shows: the rendered image and whether it was rendered

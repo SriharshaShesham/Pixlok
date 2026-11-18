@@ -1,7 +1,7 @@
 import AppKit
 import UniformTypeIdentifiers
 
-/// "Make default viewer": registers Picsl as the default app for file types.
+/// "Make default viewer": registers Pixlok as the default app for file types.
 enum DefaultAppService {
 
     enum DefaultAppError: LocalizedError {

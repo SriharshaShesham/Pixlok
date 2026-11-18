@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// Debug/QA hook: `Picsl --debug-open-edit <file> [recipe-json] [--crop]` opens the file
+    /// Debug/QA hook: `Pixlok --debug-open-edit <file> [recipe-json] [--crop]` opens the file
     /// and enters edit mode (optionally with a recipe applied and the crop tool active), so the
     /// edit UI can be screenshotted without UI scripting. Nothing is saved.
     private func runDebugOpenEditIfRequested() -> Bool {
@@ -225,7 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             window.isReleasedWhenClosed = false
             window.tabbingMode = .disallowed
             window.center()
-            window.setFrameAutosaveName("PicslSettings")
+            window.setFrameAutosaveName("PixlokSettings")
             settingsWindow = window
         }
         settingsWindow?.makeKeyAndOrderFront(nil)
@@ -238,7 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let build = info["CFBundleVersion"] as? String ?? "1"
         NSApp.activate()
         NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: "Picsl",
+            .applicationName: "Pixlok",
             .applicationVersion: version,
             .version: build,
         ])
@@ -304,14 +304,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             menu.addItem(.separator())
             let choose = NSMenuItem(title: "Choose Application…",
-                                    action: #selector(ViewerWindowController.picslChooseApplication(_:)), keyEquivalent: "")
+                                    action: #selector(ViewerWindowController.pixlokChooseApplication(_:)), keyEquivalent: "")
             choose.target = viewer
             menu.addItem(choose)
         }
     }
 
     private func openWithItem(_ app: URL, name: String, viewer: ViewerWindowController?) -> NSMenuItem {
-        let item = NSMenuItem(title: name, action: #selector(ViewerWindowController.picslOpenWithApp(_:)), keyEquivalent: "")
+        let item = NSMenuItem(title: name, action: #selector(ViewerWindowController.pixlokOpenWithApp(_:)), keyEquivalent: "")
         item.representedObject = app
         item.target = viewer
         let icon = EditorService.icon(app)

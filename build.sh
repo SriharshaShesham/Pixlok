@@ -1,16 +1,16 @@
 #!/bin/bash
-# Build Picsl without Xcode (Command Line Tools only).
-#   ./build.sh            debug build  -> build/Picsl.app
+# Build Pixlok without Xcode (Command Line Tools only).
+#   ./build.sh            debug build  -> build/Pixlok.app
 #   ./build.sh release    optimized universal (arm64 + x86_64) build
-#   ./build.sh dist       release build, ad-hoc signed and zipped -> build/dist/Picsl-<version>.zip
+#   ./build.sh dist       release build, ad-hoc signed and zipped -> build/dist/Pixlok-<version>.zip
 #   ./build.sh typecheck  type-check all sources only (fast feedback)
 #   ./build.sh run [file] build debug, then open the app (optionally with a file)
 set -euo pipefail
 cd "$(dirname "$0")"
 
 MODE="${1:-debug}"
-APP_NAME="Picsl"
-EXE="Picsl"
+APP_NAME="Pixlok"
+EXE="Pixlok"
 BUILD="build"
 APP="$BUILD/$APP_NAME.app"
 TARGET="arm64-apple-macos14.0"

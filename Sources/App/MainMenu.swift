@@ -27,7 +27,7 @@ enum MainMenu {
     // MARK: - Menus
 
     private static func appMenu(_ delegate: AppDelegate) -> NSMenu {
-        let name = "Picsl"
+        let name = "Pixlok"
         let m = NSMenu(title: name)
         m.addItem(item("About \(name)", #selector(AppDelegate.showAbout(_:)), target: delegate))
         m.addItem(.separator())
@@ -52,7 +52,7 @@ enum MainMenu {
         m.delegate = delegate
         m.addItem(item("Open…", #selector(AppDelegate.openDocument(_:)), "o", target: delegate))
         m.addItem(.separator())
-        let edit = item("Edit in…", #selector(ViewerWindowController.picslOpenInPrimaryEditor(_:)), "e")
+        let edit = item("Edit in…", #selector(ViewerWindowController.pixlokOpenInPrimaryEditor(_:)), "e")
         edit.tag = editInTag
         m.addItem(edit)
         let openWith = NSMenuItem(title: "Open With", action: nil, keyEquivalent: "")
@@ -61,9 +61,9 @@ enum MainMenu {
         openWithMenu.delegate = delegate
         openWith.submenu = openWithMenu
         m.addItem(openWith)
-        m.addItem(item("Show in Finder", #selector(ViewerWindowController.picslShowInFinder(_:)), "r", [.command, .shift]))
+        m.addItem(item("Show in Finder", #selector(ViewerWindowController.pixlokShowInFinder(_:)), "r", [.command, .shift]))
         m.addItem(.separator())
-        m.addItem(item("Move to Trash", #selector(ViewerWindowController.picslMoveToTrash(_:)), "\u{8}"))
+        m.addItem(item("Move to Trash", #selector(ViewerWindowController.pixlokMoveToTrash(_:)), "\u{8}"))
         m.addItem(.separator())
         m.addItem(item("Close", #selector(NSWindow.performClose(_:)), "w"))
         return m
@@ -71,16 +71,16 @@ enum MainMenu {
 
     private static func viewMenu() -> NSMenu {
         let m = NSMenu(title: "View")
-        m.addItem(item("Zoom In", #selector(ViewerWindowController.picslZoomIn(_:)), "+"))
-        m.addItem(item("Zoom Out", #selector(ViewerWindowController.picslZoomOut(_:)), "-"))
-        m.addItem(item("Actual Size", #selector(ViewerWindowController.picslActualSize(_:)), "0"))
-        m.addItem(item("Zoom to Fit", #selector(ViewerWindowController.picslZoomToFit(_:)), "9"))
+        m.addItem(item("Zoom In", #selector(ViewerWindowController.pixlokZoomIn(_:)), "+"))
+        m.addItem(item("Zoom Out", #selector(ViewerWindowController.pixlokZoomOut(_:)), "-"))
+        m.addItem(item("Actual Size", #selector(ViewerWindowController.pixlokActualSize(_:)), "0"))
+        m.addItem(item("Zoom to Fit", #selector(ViewerWindowController.pixlokZoomToFit(_:)), "9"))
         m.addItem(.separator())
-        m.addItem(item("Rotate Left", #selector(ViewerWindowController.picslRotateLeft(_:)), "l"))
-        m.addItem(item("Rotate Right", #selector(ViewerWindowController.picslRotateRight(_:)), "r"))
+        m.addItem(item("Rotate Left", #selector(ViewerWindowController.pixlokRotateLeft(_:)), "l"))
+        m.addItem(item("Rotate Right", #selector(ViewerWindowController.pixlokRotateRight(_:)), "r"))
         m.addItem(.separator())
-        m.addItem(item("Show Info", #selector(ViewerWindowController.picslToggleInfo(_:)), "i"))
-        m.addItem(item("Start Slideshow", #selector(ViewerWindowController.picslToggleSlideshow(_:)), "s", [.command, .shift]))
+        m.addItem(item("Show Info", #selector(ViewerWindowController.pixlokToggleInfo(_:)), "i"))
+        m.addItem(item("Start Slideshow", #selector(ViewerWindowController.pixlokToggleSlideshow(_:)), "s", [.command, .shift]))
         m.addItem(.separator())
         m.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.control, .command]))
         return m
@@ -88,11 +88,11 @@ enum MainMenu {
 
     private static func imageMenu() -> NSMenu {
         let m = NSMenu(title: "Image")
-        m.addItem(item("Edit Image…", #selector(ViewerWindowController.picslEditImage(_:)), "e", [.command, .shift]))
-        m.addItem(item("Save Edits", #selector(ViewerWindowController.picslSaveEdits(_:)), "s"))
-        m.addItem(item("Cancel Editing", #selector(ViewerWindowController.picslCancelEditing(_:))))
+        m.addItem(item("Edit Image…", #selector(ViewerWindowController.pixlokEditImage(_:)), "e", [.command, .shift]))
+        m.addItem(item("Save Edits", #selector(ViewerWindowController.pixlokSaveEdits(_:)), "s"))
+        m.addItem(item("Cancel Editing", #selector(ViewerWindowController.pixlokCancelEditing(_:))))
         m.addItem(.separator())
-        m.addItem(item("Revert to Original…", #selector(ViewerWindowController.picslRevertToOriginal(_:))))
+        m.addItem(item("Revert to Original…", #selector(ViewerWindowController.pixlokRevertToOriginal(_:))))
         return m
     }
 
@@ -100,11 +100,11 @@ enum MainMenu {
         let m = NSMenu(title: "Go")
         // Arrow keys are handled by the viewer's key monitor first; the equivalents
         // here make the shortcuts discoverable.
-        m.addItem(item("Next", #selector(ViewerWindowController.picslNext(_:)), "\u{F703}", []))
-        m.addItem(item("Previous", #selector(ViewerWindowController.picslPrevious(_:)), "\u{F702}", []))
+        m.addItem(item("Next", #selector(ViewerWindowController.pixlokNext(_:)), "\u{F703}", []))
+        m.addItem(item("Previous", #selector(ViewerWindowController.pixlokPrevious(_:)), "\u{F702}", []))
         m.addItem(.separator())
-        m.addItem(item("First", #selector(ViewerWindowController.picslFirst(_:)), "\u{F729}", []))
-        m.addItem(item("Last", #selector(ViewerWindowController.picslLast(_:)), "\u{F72B}", []))
+        m.addItem(item("First", #selector(ViewerWindowController.pixlokFirst(_:)), "\u{F729}", []))
+        m.addItem(item("Last", #selector(ViewerWindowController.pixlokLast(_:)), "\u{F72B}", []))
         return m
     }
 

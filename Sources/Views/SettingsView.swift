@@ -363,7 +363,7 @@ struct SettingsDefaultViewerSection: View {
         SettingsSection(title: "Default viewer") {
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Open the checked file types with Picsl when double-clicked in Finder.")
+                    Text("Open the checked file types with Pixlok when double-clicked in Finder.")
                         .foregroundStyle(.white)
                         .fixedSize(horizontal: false, vertical: true)
                     Text("macOS may ask you to confirm each file type. Choose “Use” to switch.")
@@ -422,10 +422,10 @@ struct SettingsDefaultViewerSection: View {
                 // The service counts type identifiers (several per format); report formats instead.
                 let n = formats.filter { DefaultAppService.isDefault(for: $0) }.count
                 resultIsError = false
-                resultMessage = "Picsl is now the default for \(n) of \(formats.count) file type\(formats.count == 1 ? "" : "s")."
+                resultMessage = "Pixlok is now the default for \(n) of \(formats.count) file type\(formats.count == 1 ? "" : "s")."
             case .failure(let error):
                 resultIsError = true
-                resultMessage = "Couldn’t make Picsl the default: \(error.localizedDescription)"
+                resultMessage = "Couldn’t make Pixlok the default: \(error.localizedDescription)"
             }
             refreshStatus()
         }

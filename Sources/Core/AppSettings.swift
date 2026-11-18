@@ -87,30 +87,45 @@ final class AppSettings: ObservableObject {
         scrollWheelZooms = defaults.object(forKey: Key.scrollWheelZooms) as? Bool ?? true
     }
 
-    // MARK: - One-time migration from the pre-rename bundle id
+    // MARK: - One-time migration from the pre-rename bundle ids
 
-    /// Preferences domain used before the app was renamed to Picsl.
-    static let legacyDefaultsDomain = "com.macpicviewer.app"
+    /// Preferences domains used before the app was renamed to Pixlok, newest first.
+    /// `io.github.sriharshashesham.picsl` was the Picsl build; `com.macpicviewer.app` the one before it.
+    static let legacyDefaultsDomains = ["io.github.sriharshashesham.picsl", "com.macpicviewer.app"]
 
-    /// Old key → new key. Settings keys are unchanged; window frame keys follow the renamed
-    /// autosave names.
-    private static let migratedKeys: [(old: String, new: String)] = {
-        var keys = [Key.sortKey, Key.sortAscending, Key.enabledFormats, Key.editors, Key.defaultEditorPath,
-                    Key.slideshowInterval, Key.wrapAround, Key.didSeedEditors, Key.scrollWheelZooms]
-            .map { (old: $0, new: $0) }
-        keys.append((old: "NSWindow Frame MacPicViewerWindow", new: "NSWindow Frame PicslWindow"))
-        keys.append((old: "NSWindow Frame MacPicViewerSettings", new: "NSWindow Frame PicslSettings"))
+    /// Settings keys, which never changed across renames.
+    private static let settingsKeys = [Key.sortKey, Key.sortAscending, Key.enabledFormats, Key.editors,
+                                       Key.defaultEditorPath, Key.slideshowInterval, Key.wrapAround,
+                                       Key.didSeedEditors, Key.scrollWheelZooms]
+
+    /// Old key -> new key for one legacy domain. Window frame keys follow the renamed autosave names.
+    private static func migratedKeys(from domain: String) -> [(old: String, new: String)] {
+        var keys = settingsKeys.map { (old: $0, new: $0) }
+        let oldPrefix = domain == "com.macpicviewer.app" ? "MacPicViewer" : "Picsl"
+        keys.append((old: "NSWindow Frame \(oldPrefix)Window", new: "NSWindow Frame PixlokWindow"))
+        keys.append((old: "NSWindow Frame \(oldPrefix)Settings", new: "NSWindow Frame PixlokSettings"))
         return keys
-    }()
+    }
 
-    /// Copies the known keys from the legacy domain once, when the current domain has none of them.
-    /// Only ever called for the real app domain (`.standard`), never for self-test suites.
+    /// Every key this migration may write in the current domain.
+    private static var currentKeys: [String] {
+        settingsKeys + ["NSWindow Frame PixlokWindow", "NSWindow Frame PixlokSettings"]
+    }
+
+    /// Copies the known keys once from the newest legacy domain that has any of them, when the
+    /// current domain has none of them. Only ever called for the real app domain (`.standard`),
+    /// never for self-test suites.
     static func migrateLegacyDefaultsIfNeeded(into defaults: UserDefaults) {
-        guard Bundle.main.bundleIdentifier != legacyDefaultsDomain,
-              let legacy = defaults.persistentDomain(forName: legacyDefaultsDomain), !legacy.isEmpty,
-              !migratedKeys.contains(where: { defaults.object(forKey: $0.new) != nil }) else { return }
-        for (old, new) in migratedKeys {
-            if let value = legacy[old] { defaults.set(value, forKey: new) }
+        guard let current = Bundle.main.bundleIdentifier, !legacyDefaultsDomains.contains(current),
+              !currentKeys.contains(where: { defaults.object(forKey: $0) != nil }) else { return }
+        for domain in legacyDefaultsDomains {
+            guard let legacy = defaults.persistentDomain(forName: domain), !legacy.isEmpty else { continue }
+            let keys = migratedKeys(from: domain)
+            guard keys.contains(where: { legacy[$0.old] != nil }) else { continue }
+            for (old, new) in keys {
+                if let value = legacy[old] { defaults.set(value, forKey: new) }
+            }
+            return
         }
     }
 

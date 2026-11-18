@@ -18,7 +18,7 @@ import UniformTypeIdentifiers
 ///   (b) the backup carries the `io.github.sriharshashesham.picsl.original` extended attribute (or
 ///   matches the inode/size recorded for it). A user's own `Original/` folder, or a backup left behind by a
 ///   deleted/renamed edited file, is therefore never treated as the backup of an unrelated file.
-/// - Backward compatibility: backups made before the rename to Picsl carry the legacy xattr
+/// - Backward compatibility: backups made by the earliest builds (before the first rename) carry the legacy xattr
 ///   `com.macpicviewer.original` and are recorded in `original/.macpicviewer-edits.json`. Both are
 ///   still recognised. Records from the legacy file are merged under the current file (current wins)
 ///   and the legacy file is removed once the merged map has been written to the current file.
@@ -33,11 +33,14 @@ struct EditSaveResult {
 
 extension Notification.Name {
     /// Posted on the main thread after a save/revert changed a file. userInfo["url"]: URL.
-    static let fileDidChange = Notification.Name("Picsl.fileDidChange")
+    static let fileDidChange = Notification.Name("Pixlok.fileDidChange")
 }
 
 enum EditSaveService {
     static let originalFolderName = "original"
+    // Data identifiers (record file name, owner xattr, legacy names) are kept stable on purpose
+    // across app renames: existing backups on users' disks must keep being recognised. Do not
+    // rename them with the app.
     static let mappingFileName = ".picsl-edits.json"
     /// Record files written by earlier builds (read and migrated, never written).
     static let legacyMappingFileNames = [".macpicviewer-edits.json"]
@@ -94,6 +97,7 @@ enum EditSaveService {
 
     // MARK: - Ownership marker & identity
 
+    /// Kept stable on purpose across app renames (see the note on `mappingFileName`).
     static let ownerXattr = "io.github.sriharshashesham.picsl.original"
     /// Ownership markers set by earlier builds; still accepted, removed on unmark.
     static let legacyOwnerXattrs = ["com.macpicviewer.original"]
@@ -223,7 +227,7 @@ enum EditSaveService {
         }
 
         // 1. Write the edited image to a hidden temp file in the same folder.
-        let tempURL = folder.appendingPathComponent(".\(savedURL.lastPathComponent).picsl-\(UUID().uuidString).tmp")
+        let tempURL = folder.appendingPathComponent(".\(savedURL.lastPathComponent).pixlok-\(UUID().uuidString).tmp")
         guard let dest = CGImageDestinationCreateWithURL(tempURL as CFURL, outType as CFString, 1, nil) else {
             let why = fm.isWritableFile(atPath: folder.path)
                 ? "This format can't be written."
