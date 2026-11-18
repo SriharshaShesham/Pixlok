@@ -42,6 +42,8 @@ struct ViewerView: View {
     private var toolbarFloats: Bool { category == .raster || category == .svg || category == nil }
     /// STL draws its own side panel on the right; keep the badge and › button clear of it.
     private var trailingOverlayInset: CGFloat { category == .model3D ? STLView.sidePanelWidth : 0 }
+    /// Height of AVPlayerView's inline top control row, which the position badge must clear.
+    private let videoTopControlsInset: CGFloat = 48
     /// Space kept clear under the media for the floating toolbar pill (≈40pt pill + 18pt
     /// bottom padding + margin), so "Fit" never hides part of the picture.
     private let floatingToolbarReserve: CGFloat = 66
@@ -118,6 +120,9 @@ struct ViewerView: View {
                 positionBadge
                     .padding(12)
                     .padding(.trailing, trailingOverlayInset)
+                    // AVKit's inline player draws its own top control row (full screen, AirPlay,
+                    // volume) in the corners; sit the badge below it instead of on top of it.
+                    .padding(.top, category == .video ? videoTopControlsInset : 0)
                     .transition(.opacity)
             }
         }
