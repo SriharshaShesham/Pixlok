@@ -1,15 +1,17 @@
 # Picsl
 
-**A Windows Photo Viewer–style image viewer for macOS.**
+**A fast, simple image viewer for macOS.**
 
-Miss the old Windows Photo Viewer after switching to a Mac? Picsl works the same way. Double-click a picture, then
-press ← / → to flip through every picture in that folder, newest first. There's no library to import and no
-catalog to build: Picsl just shows the files in the folder you opened. It also zooms, rotates and runs slideshows,
-and it opens STL 3D models and videos too.
+Open a picture and press ← / → to flip through every picture in that folder, newest first. There's no library to
+import and no catalog to build: Picsl just shows the files in the folder you opened. It zooms, rotates, runs
+slideshows and does quick edits, and it opens STL 3D models and videos too.
+
+If you've used Windows Photo Viewer, you'll feel right at home.
 
 <p align="center">
-  <img src="screenshots/Image.png" alt="Picsl showing a picture, with previous/next arrows and the toolbar" width="49%">
-  <img src="screenshots/3D%20render.png" alt="Picsl showing an STL 3D model with its info panel" width="49%">
+  <img src="screenshots/Image.png" alt="Picsl showing a picture, with previous/next arrows and the toolbar" width="32%">
+  <img src="screenshots/3D%20render.png" alt="Picsl showing an STL 3D model with its info panel" width="32%">
+  <img src="screenshots/video.png" alt="Picsl playing a video inline" width="32%">
 </p>
 
 Picsl is written in Swift with AppKit and SwiftUI and uses only Apple's system frameworks (ImageIO, Core Image,
