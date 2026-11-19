@@ -199,8 +199,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     func viewerOpenInPrimaryEditor() {
         guard !isEditing, let url = currentURL else { return }
-        // The image editor is only offered for images; STL / video open in their first capable app.
-        guard canTransform else {
+        // The image editor is only offered for images; STL / video / PDF open in their first capable app.
+        guard currentCategory == .raster || currentCategory == .svg else {
             if let app = EditorService.installedApps(for: url).first {
                 EditorService.open(url, with: app)
             } else {
@@ -294,8 +294,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         currentURL.flatMap { FormatRegistry.format(for: $0)?.category }
     }
 
-    /// Zoom / rotate (and the image editor) apply to images and SVG only.
-    var canTransform: Bool { currentCategory == .raster || currentCategory == .svg }
+    /// Zoom / rotate apply to images, SVG and PDF.
+    var canTransform: Bool { currentCategory == .raster || currentCategory == .svg || currentCategory == .pdf }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         let hasFile = currentURL != nil

@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import ImageIO
 import AVFoundation
+import PDFKit
 
 /// Right-side file info panel (toggled with the (i) button / ⌘I).
 struct InfoPanelView: View {
@@ -24,6 +25,8 @@ struct InfoPanelView: View {
                         row("Dimensions", "\(Int(px.width)) × \(Int(px.height)) pixels")
                     }
                     if let d = info.duration { row("Duration", Self.formatDuration(d)) }
+                    if let pages = info.pageCount { row("Pages", "\(pages)") }
+                    if let size = info.pageSize { row("Page size", Self.formatPageSize(size)) }
                     if let size = info.fileSize {
                         row("File size", ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
                     }
@@ -79,6 +82,19 @@ struct InfoPanelView: View {
         }
     }
 
+    /// PDF points → "210 × 297 mm" or "8.5 × 11 in", per the user's measurement system.
+    static func formatPageSize(_ points: CGSize) -> String {
+        if Locale.current.measurementSystem == .metric {
+            let mm = { (p: CGFloat) in Int((p / 72 * 25.4).rounded()) }
+            return "\(mm(points.width)) × \(mm(points.height)) mm"
+        }
+        let inches = { (p: CGFloat) -> String in
+            let v = Double((p / 72 * 100).rounded() / 100)
+            return v.formatted(FloatingPointFormatStyle<Double>().precision(.fractionLength(0...2)))
+        }
+        return "\(inches(points.width)) × \(inches(points.height)) in"
+    }
+
     static func formatDuration(_ seconds: Double) -> String {
         guard seconds.isFinite, seconds >= 0 else { return "—" }
         let total = Int(seconds.rounded())
@@ -97,6 +113,9 @@ struct InfoPanelFileInfo: Sendable {
     var duration: Double?
     var camera: String?
     var dateTaken: String?
+    var pageCount: Int?
+    /// First page's visible (crop box) size in PDF points (1/72 inch), after its own rotation.
+    var pageSize: CGSize?
     var error: String?
 
     static func load(_ url: URL) async -> InfoPanelFileInfo {
@@ -116,6 +135,8 @@ struct InfoPanelFileInfo: Sendable {
             }
             if category == .raster || category == .svg {
                 readImageProperties(url, into: &info)
+            } else if category == .pdf {
+                readPDFProperties(url, into: &info)
             }
             return info
         }.value
@@ -131,6 +152,16 @@ struct InfoPanelFileInfo: Sendable {
             }
         }
         return info
+    }
+
+    private static func readPDFProperties(_ url: URL, into info: inout InfoPanelFileInfo) {
+        guard let doc = PDFDocument(url: url) else { return }
+        info.pageCount = doc.pageCount
+        if !doc.isLocked, let page = doc.page(at: 0) {
+            // The crop box is what PDFView shows (it falls back to the media box when unset).
+            let size = page.bounds(for: .cropBox).size
+            info.pageSize = page.rotation % 180 == 0 ? size : CGSize(width: size.height, height: size.width)
+        }
     }
 
     private static func readImageProperties(_ url: URL, into info: inout InfoPanelFileInfo) {

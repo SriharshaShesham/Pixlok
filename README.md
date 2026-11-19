@@ -4,7 +4,7 @@
 
 Open a picture and press ← / → to flip through every picture in that folder, newest first. There's no library to
 import and no catalog to build: Pixlok just shows the files in the folder you opened. It zooms, rotates, runs
-slideshows and does quick edits, and it opens STL 3D models and videos too.
+slideshows and does quick edits, and it opens STL 3D models, videos and PDFs too.
 
 If you've used Windows Photo Viewer, you'll feel right at home.
 
@@ -15,7 +15,7 @@ If you've used Windows Photo Viewer, you'll feel right at home.
 </p>
 
 Pixlok is written in Swift with AppKit and SwiftUI and uses only Apple's system frameworks (ImageIO, Core Image,
-WebKit, ModelIO/SceneKit and AVKit). It has no third-party dependencies.
+WebKit, ModelIO/SceneKit, AVKit and PDFKit). It has no third-party dependencies.
 
 ## Features
 
@@ -42,6 +42,8 @@ WebKit, ModelIO/SceneKit and AVKit). It has no third-party dependencies.
 - **SVG** vector graphics.
 - **STL** 3D models shown as an orbitable model: drag to orbit, scroll to zoom, Shift-drag to pan.
 - **Video** playback (MP4, MOV, M4V) inline, with Space for play/pause.
+- **PDF** documents: scroll (or use ↑ / ↓) through all pages, zoom and rotate, with a page counter;
+  password-protected PDFs can be unlocked. The Info panel shows the page count and page size.
 
 **Editing (non-destructive)**
 
@@ -74,6 +76,7 @@ WebKit, ModelIO/SceneKit and AVKit). It has no third-party dependencies.
 | Vector | SVG |
 | 3D     | STL |
 | Video  | MP4, MOV, M4V |
+| Documents | PDF |
 
 Image decoding is done by macOS, so format support (for example AVIF, JPEG XL and individual RAW cameras)
 depends on your macOS version.

@@ -36,6 +36,9 @@ final class AppSettings: ObservableObject {
         static let sortKey = "sortKey"
         static let sortAscending = "sortAscending"
         static let enabledFormats = "enabledFormatIDs"
+        /// Every format ID that existed when `enabledFormatIDs` was last saved, so formats added in a
+        /// later version can be switched on for people who already have a saved selection.
+        static let knownFormats = "knownFormatIDs"
         static let editors = "editors"
         static let defaultEditorPath = "defaultEditorPath"
         static let slideshowInterval = "slideshowInterval"
@@ -48,7 +51,12 @@ final class AppSettings: ObservableObject {
     @Published var sortKey: SortKey { didSet { defaults.set(sortKey.rawValue, forKey: Key.sortKey) } }
     @Published var sortAscending: Bool { didSet { defaults.set(sortAscending, forKey: Key.sortAscending) } }
     /// IDs from `FormatRegistry.all`. Default: all enabled.
-    @Published var enabledFormatIDs: Set<String> { didSet { defaults.set(Array(enabledFormatIDs).sorted(), forKey: Key.enabledFormats) } }
+    @Published var enabledFormatIDs: Set<String> {
+        didSet {
+            defaults.set(Array(enabledFormatIDs).sorted(), forKey: Key.enabledFormats)
+            defaults.set(FormatRegistry.all.map(\.id).sorted(), forKey: Key.knownFormats)
+        }
+    }
     @Published var editors: [EditorApp] { didSet { saveEditors() } }
     /// Path of the editor used by the primary "Edit in …" button. nil → first in `editors`.
     @Published var defaultEditorPath: String? { didSet { defaults.set(defaultEditorPath, forKey: Key.defaultEditorPath) } }
@@ -69,10 +77,23 @@ final class AppSettings: ObservableObject {
         self.defaults = defaults
         sortKey = SortKey(rawValue: defaults.string(forKey: Key.sortKey) ?? "") ?? .dateModified
         sortAscending = defaults.object(forKey: Key.sortAscending) as? Bool ?? false
-        if let ids = defaults.array(forKey: Key.enabledFormats) as? [String] {
-            enabledFormatIDs = Set(ids)
-        } else {
-            enabledFormatIDs = Set(FormatRegistry.all.map(\.id))
+        let allIDs = Set(FormatRegistry.all.map(\.id))
+        let savedFormats = defaults.array(forKey: Key.enabledFormats) as? [String]
+        var formats = allIDs
+        if let savedFormats {
+            // Formats added since the selection was saved start out enabled, like on a fresh install.
+            let known = (defaults.array(forKey: Key.knownFormats) as? [String]).map(Set.init)
+                ?? FormatRegistry.formatIDsBeforeKnownTracking
+            formats = Set(savedFormats).union(allIDs.subtracting(known))
+        }
+        enabledFormatIDs = formats
+        // Persist the merged selection (didSet doesn't run during init). Nothing is written when no
+        // selection was saved yet, so an untouched domain stays empty (the legacy settings migration
+        // only runs into an empty domain).
+        if savedFormats != nil,
+           (defaults.array(forKey: Key.knownFormats) as? [String]).map(Set.init) != allIDs {
+            defaults.set(Array(allIDs).sorted(), forKey: Key.knownFormats)
+            defaults.set(Array(formats).sorted(), forKey: Key.enabledFormats)
         }
         if let data = defaults.data(forKey: Key.editors),
            let list = try? JSONDecoder().decode([EditorApp].self, from: data) {

@@ -39,9 +39,16 @@ struct ViewerView: View {
     private var navigationShown: Bool { controlsShown && editSession == nil }
     /// Images float the toolbar over the picture; STL and video keep their own
     /// bottom controls visible, so the toolbar gets a strip of its own there.
-    private var toolbarFloats: Bool { category == .raster || category == .svg || category == nil }
-    /// STL draws its own side panel on the right; keep the badge and › button clear of it.
-    private var trailingOverlayInset: CGFloat { category == .model3D ? STLView.sidePanelWidth : 0 }
+    private var toolbarFloats: Bool { category == .raster || category == .svg || category == .pdf || category == nil }
+    /// STL draws its own side panel on the right, and PDFs a vertical scroller; keep the badge
+    /// and › button clear of them.
+    private var trailingOverlayInset: CGFloat {
+        switch category {
+        case .model3D: return STLView.sidePanelWidth
+        case .pdf: return 14
+        default: return 0
+        }
+    }
     /// Height of AVPlayerView's inline top control row, which the position badge must clear.
     private let videoTopControlsInset: CGFloat = 48
     /// Space kept clear under the media for the floating toolbar pill (≈40pt pill + 18pt
@@ -143,6 +150,7 @@ struct ViewerView: View {
         case .svg: SVGView(url: url, state: state)
         case .model3D: STLView(url: url)
         case .video: VideoView(url: url)
+        case .pdf: PDFDocumentView(url: url, state: state)
         case nil:
             ViewerMessageView(symbol: "questionmark.square.dashed",
                               title: "Can’t show “\(url.lastPathComponent)”",
@@ -195,7 +203,7 @@ struct ViewerView: View {
 
     private var toolbar: some View {
         ToolbarPill(state: state,
-                    zoomEnabled: category == .raster || category == .svg,
+                    zoomEnabled: category == .raster || category == .svg || category == .pdf,
                     canGoPrevious: canGoPrevious && browser.count > 1,
                     canGoNext: canGoNext && browser.count > 1,
                     onPrevious: { browser.previous() },

@@ -28,7 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         EditorService.seedDefaultEditorsIfNeeded(settings: settings)
         NSApp.activate()
-        if runDebugOpenEditIfRequested() { return }
+        if runDebugOpenEditIfRequested() || runDebugViewIfRequested() { return }
         // Files passed at launch arrive via application(_:open:) around now; give them a moment.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             guard let self, !self.handledLaunchOpen, self.controllers.isEmpty else { return }
@@ -77,10 +77,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return true
     }
 
+    /// Debug/QA hook: `Pixlok --debug-view <file> [actions]` opens the file, then runs the
+    /// comma-separated viewer actions one by one (zoomIn, zoomOut, actualSize, fit, rotateLeft,
+    /// rotateRight, next, previous), so view states can be screenshotted without UI scripting.
+    /// Nothing is saved.
+    private func runDebugViewIfRequested() -> Bool {
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: "--debug-view"), i + 1 < args.count else { return false }
+        handledLaunchOpen = true
+        openFiles([URL(fileURLWithPath: (args[i + 1] as NSString).expandingTildeInPath)])
+        let actions = (i + 2 < args.count ? args[i + 2] : "").split(separator: ",").map(String.init)
+        for (n, action) in actions.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 + 0.4 * Double(n)) { [weak self] in
+                guard let viewer = self?.frontmostViewer() else { return }
+                switch action {
+                case "zoomIn": viewer.pixlokZoomIn(nil)
+                case "zoomOut": viewer.pixlokZoomOut(nil)
+                case "actualSize": viewer.pixlokActualSize(nil)
+                case "fit": viewer.pixlokZoomToFit(nil)
+                case "rotateLeft": viewer.pixlokRotateLeft(nil)
+                case "rotateRight": viewer.pixlokRotateRight(nil)
+                case "next": viewer.browser?.next()
+                case "previous": viewer.browser?.previous()
+                default: FileHandle.standardError.write(Data("debug-view: unknown action \(action)\n".utf8))
+                }
+            }
+        }
+        return true
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         handledLaunchOpen = true
-        openFiles(urls)
+        // Finder and the Dock may deliver one multi-file open as several back-to-back calls
+        // (e.g. one per folder). Handled one by one, each would replace the front window's
+        // content, so gather calls that arrive together and open them as one batch.
+        pendingOpenURLs += urls
+        pendingOpenFlush?.cancel()
+        let flush = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let batch = self.pendingOpenURLs
+            self.pendingOpenURLs = []
+            self.pendingOpenFlush = nil
+            self.openFiles(batch)
+        }
+        pendingOpenFlush = flush
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.openBatchWindow, execute: flush)
     }
+
+    /// How long to wait for more `application(_:open:)` calls belonging to the same open.
+    private static let openBatchWindow: TimeInterval = 0.15
+    private var pendingOpenURLs: [URL] = []
+    private var pendingOpenFlush: DispatchWorkItem?
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if controllers.contains(where: { $0.editSession?.isSaving == true }) {
@@ -125,31 +172,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Opening files
 
-    /// Window policy: the first file goes to the frontmost viewer window (replacing its
-    /// content, like Windows Photo Viewer); files from other folders get their own windows.
+    /// Window policy, per folder in the batch (only its first file is shown; the rest are
+    /// reachable with ← →):
+    /// - a window already showing that folder shows the file;
+    /// - otherwise the first such folder replaces the frontmost viewer's content (like
+    ///   Windows Photo Viewer), and every further folder gets a new window.
     func openFiles(_ urls: [URL]) {
         let files = urls.filter(\.isFileURL).map(\.standardizedFileURL)
-        guard let first = files.first else { return }
-        var shownFolders: Set<String> = []
+        guard !files.isEmpty else { return }
 
-        let target = frontmostViewer() ?? makeController(cascadingFrom: nil)
-        target.show(first)
-        target.showWindow(nil)
-        shownFolders.insert(Self.folderPath(of: first))
-
-        var previous = target.window
-        for url in files.dropFirst() {
+        // One entry per folder, in the order given.
+        var seenFolders: Set<String> = []
+        let perFolder = files.compactMap { url -> (folder: String, url: URL)? in
             let folder = Self.folderPath(of: url)
-            guard !shownFolders.contains(folder) else { continue }   // reachable with ← →
-            shownFolders.insert(folder)
-            let c = makeController(cascadingFrom: previous)
-            c.show(url)
-            c.showWindow(nil)
-            previous = c.window
+            return seenFolders.insert(folder).inserted ? (folder, url) : nil
+        }
+
+        // Pass 1: folders already open in a window stay in that window.
+        var targets = [ViewerWindowController?](repeating: nil, count: perFolder.count)
+        var used: [ViewerWindowController] = []
+        for (i, entry) in perFolder.enumerated() {
+            if let existing = viewer(showingFolder: entry.folder, excluding: used) {
+                targets[i] = existing
+                used.append(existing)
+            }
+        }
+        // Pass 2: the first remaining folder takes over the frontmost viewer (if it wasn't just
+        // claimed); the others get new windows.
+        if let i = targets.firstIndex(where: { $0 == nil }),
+           let front = frontmostViewer(), !used.contains(where: { $0 === front }) {
+            targets[i] = front
+            used.append(front)
+        }
+
+        var previous = frontmostViewer()?.window
+        for (i, entry) in perFolder.enumerated() {
+            let target: ViewerWindowController
+            if let t = targets[i] {
+                target = t
+            } else {
+                target = makeController(cascadingFrom: previous)
+                targets[i] = target
+            }
+            target.show(entry.url)
+            target.showWindow(nil)
+            previous = target.window
         }
         hasShownViewer = true
-        target.window?.makeKeyAndOrderFront(nil)
+        targets.first??.window?.makeKeyAndOrderFront(nil)
         NSApp.activate()
+    }
+
+    /// A viewer window whose current folder is `folder`, frontmost first.
+    private func viewer(showingFolder folder: String, excluding used: [ViewerWindowController]) -> ViewerWindowController? {
+        let ordered = NSApp.orderedWindows.compactMap { $0.windowController as? ViewerWindowController }
+        let candidates = ordered + controllers.filter { c in !ordered.contains { $0 === c } }
+        return candidates.first { c in
+            // A window in edit mode isn't reused (that would interrupt the edit); the file goes
+            // to the frontmost viewer or a new window instead.
+            !used.contains { $0 === c } && c.editSession == nil
+                && c.browser?.folder.standardizedFileURL.path == folder
+        }
     }
 
     private static func folderPath(of url: URL) -> String {

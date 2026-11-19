@@ -21,6 +21,9 @@ import SwiftUI
 ///       folder, stale backups of deleted files, re-save, viewer delete, failed save).
 ///   Pixlok --selftest-math
 ///       Crop-drag, flip/straighten and scroll-zoom clamp math.
+///   Pixlok --selftest-pdf <empty scratch folder>
+///       Builds PDF fixtures there and checks loading, unlocking, info fields, listing and the
+///       new-format settings migration (throwaway preferences suite).
 @MainActor
 enum SelfTest {
     static func runIfRequested(_ args: [String]) {
@@ -36,7 +39,7 @@ enum SelfTest {
             }
             let order = args[4].lowercased()
             guard order == "asc" || order == "desc" else { fail("order must be 'asc' or 'desc'") }
-            let suite = "Pixlok.selftest.\(UUID().uuidString)"
+            let suite = makeSuiteName()
             guard let defaults = UserDefaults(suiteName: suite) else { fail("cannot create preferences suite") }
             let settings = AppSettings(defaults: defaults)
             settings.sortKey = key
@@ -53,6 +56,11 @@ enum SelfTest {
         case "--selftest-originals":
             guard args.count >= 3 else { fail("usage: --selftest-originals <empty scratch folder>") }
             exit(OriginalsSelfTest.runOriginals(root: args[2]))
+        case "--selftest-pdf":
+            guard args.count >= 3 else { fail("usage: --selftest-pdf <empty scratch folder>") }
+            let root = args[2]
+            Task { @MainActor in exit(await PDFSelfTest.run(root: root)) }
+            dispatchMain()
         case "--selftest-math":
             exit(OriginalsSelfTest.runMath())
         case "--selftest-revert":
@@ -78,13 +86,20 @@ enum SelfTest {
         exit(0)
     }
 
-    /// Clears a throwaway preferences suite and deletes its (now empty) plist so test runs leave nothing behind.
-    private static func removeSuite(_ name: String) {
+    /// A throwaway preferences suite for a self-test. It is stored as a plist under the temporary
+    /// directory (CFPreferences accepts an absolute path as the domain), never in
+    /// ~/Library/Preferences, so nothing is left behind there even though cfprefsd writes the file
+    /// back after the process exits.
+    static func makeSuiteName() -> String {
+        (NSTemporaryDirectory() as NSString).appendingPathComponent("Pixlok-selftest-\(UUID().uuidString)")
+    }
+
+    /// Clears a throwaway suite made by `makeSuiteName()` and deletes its plist (best-effort; it lives
+    /// in the temporary directory either way).
+    static func removeSuite(_ name: String) {
+        guard name.hasPrefix(NSTemporaryDirectory()) else { return }
         UserDefaults.standard.removePersistentDomain(forName: name)
-        UserDefaults(suiteName: name)?.synchronize()
-        let plist = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Preferences/\(name).plist")
-        try? FileManager.default.removeItem(at: plist)
+        try? FileManager.default.removeItem(atPath: name + ".plist")
     }
 
     private static func snapshotSettings(to path: String) -> Never {

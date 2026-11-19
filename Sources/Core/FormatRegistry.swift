@@ -7,6 +7,7 @@ enum MediaCategory: String, Codable {
     case svg      // vector, rendered via WebKit
     case model3D  // STL via ModelIO + SceneKit
     case video    // AVKit
+    case pdf      // PDFKit
 }
 
 /// One user-toggleable file type in Settings ("File types to show").
@@ -37,6 +38,14 @@ enum FormatRegistry {
         FileFormat(id: "mp4", label: "MP4", extensions: ["mp4"], category: .video, utTypes: ["public.mpeg-4"]),
         FileFormat(id: "mov", label: "MOV", extensions: ["mov", "qt"], category: .video, utTypes: ["com.apple.quicktime-movie"]),
         FileFormat(id: "m4v", label: "M4V", extensions: ["m4v"], category: .video, utTypes: ["com.apple.m4v-video"]),
+        FileFormat(id: "pdf", label: "PDF", extensions: ["pdf"], category: .pdf, utTypes: ["com.adobe.pdf"]),
+    ]
+
+    /// The format IDs of versions up to 1.1.x, which saved a selection without recording which
+    /// formats existed. Anything not in here is treated as new for such a saved selection.
+    static let formatIDsBeforeKnownTracking: Set<String> = [
+        "jpeg", "png", "heic", "gif", "webp", "tiff", "bmp", "avif", "jxl", "psd", "raw", "ico",
+        "svg", "stl", "mp4", "mov", "m4v",
     ]
 
     private static let byExtension: [String: FileFormat] = {

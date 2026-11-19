@@ -398,6 +398,7 @@ final class EditHost: ObservableObject {
         case .svg: return "Editing isn’t available for SVG files"
         case .model3D: return "Editing isn’t available for 3D models"
         case .video: return "Editing isn’t available for videos"
+        case .pdf: return "Editing isn’t available for PDF documents"
         default: return "Editing isn’t available for this image (animated or unsupported)"
         }
     }
