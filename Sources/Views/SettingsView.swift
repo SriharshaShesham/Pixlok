@@ -12,6 +12,7 @@ struct SettingsView: View {
                 SettingsFileTypesSection(settings: settings)
                 SettingsEditorsSection(settings: settings)
                 SettingsDefaultViewerSection(settings: settings)
+                SettingsUpdatesSection(settings: settings, updates: .shared)
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -50,6 +51,16 @@ struct SettingsBrowsingSection: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .frame(width: 150, alignment: .leading)
+            }
+
+            SettingsRow(label: "Open other folders") {
+                Picker("Open other folders", selection: $settings.otherFolderPlacement) {
+                    ForEach(OtherFolderPlacement.allCases) { p in Text(p.label).tag(p) }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 200, alignment: .leading)
+                .help("Where a file opened from Finder shows up when its folder isn’t open in Pixlok yet. A folder that is already open goes back to its window.")
             }
 
             SettingsRow(label: "Slideshow interval") {
@@ -346,6 +357,48 @@ struct SettingsEditorsSection: View {
         var cache: [String: NSImage] = [:]
         for e in settings.editors { cache[e.path] = NSWorkspace.shared.icon(forFile: e.path) }
         iconCache = cache
+    }
+}
+
+// MARK: - Updates
+
+struct SettingsUpdatesSection: View {
+    @ObservedObject var settings: AppSettings
+    @ObservedObject var updates: UpdateService
+
+    var body: some View {
+        SettingsSection(title: "Updates",
+                        subtitle: "Pixlok asks GitHub once a day whether a newer release exists. Nothing is downloaded or installed automatically.") {
+            HStack(alignment: .center, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle("Check for updates automatically", isOn: $settings.checkForUpdates)
+                        .toggleStyle(.checkbox)
+                        .foregroundStyle(.white)
+                    Text(statusText)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(SettingsPalette.secondaryText)
+                }
+                Spacer(minLength: 8)
+                Button {
+                    updates.checkNow()
+                } label: {
+                    HStack(spacing: 6) {
+                        if updates.isChecking { ProgressView().controlSize(.small) }
+                        Text("Check Now")
+                    }
+                }
+                .buttonStyle(SettingsButtonStyle())
+                .disabled(updates.isChecking)
+            }
+        }
+    }
+
+    private var statusText: String {
+        var text = "Version \(UpdateService.currentVersion)"
+        if let last = settings.lastUpdateCheck {
+            text += " · last checked \(last.formatted(.relative(presentation: .named)))"
+        }
+        return text
     }
 }
 

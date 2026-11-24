@@ -24,6 +24,9 @@ import SwiftUI
 ///   Pixlok --selftest-pdf <empty scratch folder>
 ///       Builds PDF fixtures there and checks loading, unlocking, info fields, listing and the
 ///       new-format settings migration (throwaway preferences suite).
+///   Pixlok --selftest-update [--offline]
+///       Version comparison, release-JSON parsing and notes tidying; without --offline also fetches
+///       the latest GitHub release and prints it.
 @MainActor
 enum SelfTest {
     static func runIfRequested(_ args: [String]) {
@@ -56,6 +59,10 @@ enum SelfTest {
         case "--selftest-originals":
             guard args.count >= 3 else { fail("usage: --selftest-originals <empty scratch folder>") }
             exit(OriginalsSelfTest.runOriginals(root: args[2]))
+        case "--selftest-update":
+            let offline = args.contains("--offline")
+            Task { @MainActor in exit(await updateSelfTest(offline: offline)) }
+            dispatchMain()
         case "--selftest-pdf":
             guard args.count >= 3 else { fail("usage: --selftest-pdf <empty scratch folder>") }
             let root = args[2]
@@ -106,7 +113,7 @@ enum SelfTest {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
         let hosting = NSHostingView(rootView: SettingsView(settings: .shared).preferredColorScheme(.dark))
-        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 760, height: 900),
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 760, height: 1100),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = hosting
@@ -124,5 +131,46 @@ enum SelfTest {
     private static func fail(_ message: String) -> Never {
         FileHandle.standardError.write(Data("selftest: \(message)\n".utf8))
         exit(1)
+    }
+
+    // MARK: - Update check
+
+    private static func updateSelfTest(offline: Bool) async -> Int32 {
+        var failures = 0
+        func expect(_ ok: Bool, _ what: String) {
+            print((ok ? "ok   " : "FAIL ") + what)
+            if !ok { failures += 1 }
+        }
+        let newer = UpdateService.isVersion
+        expect(newer("1.2.0", "1.1.1"), "1.2.0 > 1.1.1")
+        expect(newer("1.10.0", "1.9.9"), "1.10.0 > 1.9.9")
+        expect(!newer("1.1.1", "1.1.1"), "1.1.1 == 1.1.1")
+        expect(!newer("1.1", "1.1.0"), "1.1 == 1.1.0")
+        expect(newer("1.1.0.1", "1.1"), "1.1.0.1 > 1.1")
+        expect(!newer("1.0.9", "1.1"), "1.0.9 < 1.1")
+        expect(newer("2.0.0-beta", "1.9"), "2.0.0-beta > 1.9 (suffix ignored)")
+
+        let json = ###"{"tag_name":"v1.2.0","name":"","html_url":"https://example.com/r","body":"## What's new\n- **Tabs.** New `⌘T`"}"###
+        let r = UpdateService.parseRelease(Data(json.utf8))
+        expect(r?.version == "1.2.0", "parse tag v1.2.0 → 1.2.0")
+        expect(r?.name == "Pixlok 1.2.0", "empty name falls back")
+        expect(r?.page.absoluteString == "https://example.com/r", "html_url")
+        expect(UpdateService.plainNotes(r?.notes ?? "") == "What's new\n• Tabs. New ⌘T", "notes tidied")
+        expect(UpdateService.parseRelease(Data(#"{"tag_name":"nightly"}"#.utf8)) == nil, "non-numeric tag rejected")
+        expect(UpdateService.parseRelease(Data("not json".utf8)) == nil, "bad JSON rejected")
+
+        if !offline {
+            do {
+                let latest = try await UpdateService.fetchLatest()
+                print("latest release: \(latest.version) (\(latest.name)) \(latest.page.absoluteString)")
+                print("installed: \(UpdateService.currentVersion); newer available: "
+                      + "\(newer(latest.version, UpdateService.currentVersion))")
+            } catch {
+                print("FAIL fetch: \(error.localizedDescription)")
+                failures += 1
+            }
+        }
+        print(failures == 0 ? "update self-test passed" : "update self-test: \(failures) failure(s)")
+        return failures == 0 ? 0 : 1
     }
 }

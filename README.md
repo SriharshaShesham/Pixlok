@@ -26,6 +26,9 @@ WebKit, ModelIO/SceneKit, AVKit and PDFKit). It has no third-party dependencies.
   ascending or descending.
 - Optional wrap-around at the end of the folder.
 - Choose which file types are shown; all are on by default.
+- Open another file or folder from the **Open** button in the top bar, in the same window, a new tab or a new
+  window. A file from a different folder opens in a new window by default (or a tab, or the current window:
+  Settings → Browsing).
 
 **Viewing**
 
@@ -118,6 +121,13 @@ open it, either:
 
 You only need to do this once.
 
+### Updates
+
+Once a day Pixlok asks GitHub whether a newer release exists, and if so shows what's new with a link to
+download it (and the `brew upgrade` command, if you installed with Homebrew). It never downloads or installs
+anything on its own, and it sends nothing but that one request. Turn it off, or check by hand, in
+**Settings → Updates** or **Pixlok → Check for Updates…**.
+
 ## Keyboard shortcuts
 
 | Action | Shortcut |
@@ -135,7 +145,8 @@ You only need to do this once.
 | Move to Trash | Delete or ⌘⌫ |
 | Show in Finder | ⌘⇧R |
 | Edit in external editor | ⌘E |
-| Open file | ⌘O |
+| Open file / folder | ⌘O / ⌘⇧O |
+| New window / tab | ⌘N / ⌘T |
 | Settings | ⌘, |
 
 **While editing**

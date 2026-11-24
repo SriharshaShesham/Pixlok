@@ -1,7 +1,8 @@
 import SwiftUI
 import AppKit
 
-/// 44pt top bar: centered "filename — folder", "Edit in …" split button and Info toggle.
+/// 44pt top bar: "Open ▾" split button (after the traffic lights), centered "filename — folder",
+/// "Edit in …" split button and Info toggle.
 struct ViewerTopBar: View {
     @ObservedObject var browser: FolderBrowser
     @ObservedObject var settings: AppSettings
@@ -9,14 +10,22 @@ struct ViewerTopBar: View {
     /// Edit mode: the edit panel takes the Info slot, and opening the file elsewhere is blocked.
     var isEditing: Bool = false
     weak var handler: ViewerCommandHandler?
+    @Environment(\.viewerTopBarLeading) private var leading
 
     var body: some View {
         ZStack {
             ViewerWindowDragArea()
             title
-                .padding(.leading, 90)
+                .padding(.leading, 190)
                 .padding(.trailing, 230)
                 .allowsHitTesting(false)
+            HStack {
+                ViewerOpenButton(handler: handler)
+                    .disabled(isEditing)
+                    .opacity(isEditing ? 0.5 : 1)
+                Spacer()
+            }
+            .padding(.leading, leading)
             HStack(spacing: 8) {
                 Spacer()
                 if let url = browser.current {
@@ -58,6 +67,59 @@ struct ViewerTopBar: View {
             .font(.system(size: 13, weight: .semibold))
             .lineLimit(1)
             .truncationMode(.middle)
+    }
+}
+
+/// "Open ▾" split button. Main part chooses a file or folder to show in this window; the ▾ menu
+/// has Open Folder, New Window / New Tab and their "Open in …" variants.
+struct ViewerOpenButton: View {
+    weak var handler: ViewerCommandHandler?
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button {
+                handler?.viewerPerform(.openHere)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 11, weight: .medium))
+                    Text("Open")
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(ViewerPalette.primaryText)
+                .padding(.leading, 10)
+                .padding(.trailing, 8)
+                .frame(height: 26)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open a file or folder in this window (⌘O)")
+
+            Rectangle().fill(ViewerPalette.border).frame(width: 1, height: 16)
+
+            Menu {
+                Button("Open File or Folder…") { handler?.viewerPerform(.openHere) }
+                Button("Open Folder…") { handler?.viewerPerform(.openFolderHere) }
+                Divider()
+                Button("Open in New Tab…") { handler?.viewerPerform(.openInNewTab) }
+                Button("Open in New Window…") { handler?.viewerPerform(.openInNewWindow) }
+                Divider()
+                Button("New Tab") { handler?.viewerPerform(.newTab) }
+                Button("New Window") { handler?.viewerPerform(.newWindow) }
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(ViewerPalette.primaryText)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 26, height: 26)
+            .fixedSize()
+            .help("Open folder, new tab or new window")
+        }
+        .background(RoundedRectangle(cornerRadius: 7).fill(ViewerPalette.pill))
+        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(ViewerPalette.border))
     }
 }
 

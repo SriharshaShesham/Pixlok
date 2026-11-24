@@ -15,6 +15,19 @@ enum SortKey: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// Where a file from a folder that isn't open yet (Finder, Dock, Open With) is shown.
+enum OtherFolderPlacement: String, CaseIterable, Identifiable {
+    case newWindow, newTab, currentWindow
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .newWindow: return "In a new window"
+        case .newTab: return "In a new tab"
+        case .currentWindow: return "In the current window"
+        }
+    }
+}
+
 /// An external app offered under "Edit in".
 struct EditorApp: Codable, Hashable, Identifiable {
     var path: String          // absolute path to the .app bundle
@@ -45,6 +58,10 @@ final class AppSettings: ObservableObject {
         static let wrapAround = "wrapAround"
         static let didSeedEditors = "didSeedEditors"
         static let scrollWheelZooms = "scrollWheelZooms"
+        static let otherFolderPlacement = "otherFolderPlacement"
+        static let checkForUpdates = "checkForUpdates"
+        static let lastUpdateCheck = "lastUpdateCheck"
+        static let skippedUpdateVersion = "skippedUpdateVersion"
     }
 
     /// Default: Date modified, newest first.
@@ -67,6 +84,20 @@ final class AppSettings: ObservableObject {
     /// Plain scroll wheel / two-finger scroll zooms images (true) or pans them (false).
     /// ⌘/⌥-scroll zooms in both modes.
     @Published var scrollWheelZooms: Bool { didSet { defaults.set(scrollWheelZooms, forKey: Key.scrollWheelZooms) } }
+
+    /// Default: new window. Folders already open in a window always go back to that window.
+    @Published var otherFolderPlacement: OtherFolderPlacement {
+        didSet { defaults.set(otherFolderPlacement.rawValue, forKey: Key.otherFolderPlacement) }
+    }
+
+    /// Daily check for a newer GitHub release (notify only). Default: on.
+    @Published var checkForUpdates: Bool { didSet { defaults.set(checkForUpdates, forKey: Key.checkForUpdates) } }
+    @Published var lastUpdateCheck: Date? { didSet { defaults.set(lastUpdateCheck, forKey: Key.lastUpdateCheck) } }
+    /// "Skip This Version": automatic checks stay quiet about this version (manual checks still show it).
+    var skippedUpdateVersion: String? {
+        get { defaults.string(forKey: Key.skippedUpdateVersion) }
+        set { defaults.set(newValue, forKey: Key.skippedUpdateVersion) }
+    }
 
     var didSeedEditors: Bool {
         get { defaults.bool(forKey: Key.didSeedEditors) }
@@ -106,6 +137,10 @@ final class AppSettings: ObservableObject {
         slideshowInterval = interval > 0 ? interval : 3
         wrapAround = defaults.object(forKey: Key.wrapAround) as? Bool ?? true
         scrollWheelZooms = defaults.object(forKey: Key.scrollWheelZooms) as? Bool ?? true
+        checkForUpdates = defaults.object(forKey: Key.checkForUpdates) as? Bool ?? true
+        lastUpdateCheck = defaults.object(forKey: Key.lastUpdateCheck) as? Date
+        otherFolderPlacement = OtherFolderPlacement(
+            rawValue: defaults.string(forKey: Key.otherFolderPlacement) ?? "") ?? .newWindow
     }
 
     // MARK: - One-time migration from the pre-rename bundle ids

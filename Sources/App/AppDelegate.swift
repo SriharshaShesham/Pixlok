@@ -18,9 +18,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Launch
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        // We add our own "Enter Full Screen" item; no tabs in a viewer.
+        // We add our own "Enter Full Screen" item. Window tabbing stays on: viewer windows can be
+        // tabbed (File ▸ New Tab; the system adds Show Tab Bar / Merge All Windows to Window).
         UserDefaults.standard.set(false, forKey: "NSFullScreenMenuItemEverywhere")
-        NSWindow.allowsAutomaticWindowTabbing = false
+        NSWindow.allowsAutomaticWindowTabbing = true
         NSApp.setActivationPolicy(.regular)
         NSApp.mainMenu = MainMenu.build(delegate: self)
     }
@@ -29,6 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         EditorService.seedDefaultEditorsIfNeeded(settings: settings)
         NSApp.activate()
         if runDebugOpenEditIfRequested() || runDebugViewIfRequested() { return }
+        // Quiet daily update check, after launch has settled (debug/QA runs above never check).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { UpdateService.shared.checkAutomaticallyIfDue() }
         // Files passed at launch arrive via application(_:open:) around now; give them a moment.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             guard let self, !self.handledLaunchOpen, self.controllers.isEmpty else { return }
@@ -56,30 +59,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if crop {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { session.beginCrop() }
             }
-            // `--debug-snapshot <out.png>`: render just this window to a PNG after things settle,
-            // then exit immediately (nothing is saved; skips the unsaved-edits quit alert).
-            if let s = args.firstIndex(of: "--debug-snapshot"), s + 1 < args.count {
-                let out = URL(fileURLWithPath: args[s + 1])
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak viewer] in
-                    guard let view = viewer?.window?.contentView?.superview ?? viewer?.window?.contentView,
-                          let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { exit(1) }
-                    view.cacheDisplay(in: view.bounds, to: rep)
-                    do {
-                        guard let png = rep.representation(using: .png, properties: [:]) else { exit(1) }
-                        try png.write(to: out)
-                    } catch {
-                        exit(1)
-                    }
-                    exit(0)
-                }
-            }
+            Self.writeDebugSnapshotIfRequested(after: 3.0) { [weak self] in self?.frontmostViewer() }
         }
         return true
     }
 
+    /// `--debug-snapshot <out.png>`: render the front viewer window to a PNG after things settle,
+    /// then exit immediately (nothing is saved; skips the unsaved-edits quit alert).
+    private static func writeDebugSnapshotIfRequested(after delay: TimeInterval,
+                                                      viewer: @escaping () -> ViewerWindowController?) {
+        let args = CommandLine.arguments
+        guard let s = args.firstIndex(of: "--debug-snapshot"), s + 1 < args.count else { return }
+        let out = URL(fileURLWithPath: args[s + 1])
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            let window = viewer()?.window
+            guard let view = window?.contentView?.superview ?? window?.contentView,
+                  let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { exit(1) }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            do {
+                guard let png = rep.representation(using: .png, properties: [:]) else { exit(1) }
+                try png.write(to: out)
+            } catch {
+                exit(1)
+            }
+            exit(0)
+        }
+    }
+
     /// Debug/QA hook: `Pixlok --debug-view <file> [actions]` opens the file, then runs the
     /// comma-separated viewer actions one by one (zoomIn, zoomOut, actualSize, fit, rotateLeft,
-    /// rotateRight, next, previous), so view states can be screenshotted without UI scripting.
+    /// rotateRight, next, previous, newTab, newWindow), so view states can be screenshotted without UI scripting.
     /// Nothing is saved.
     private func runDebugViewIfRequested() -> Bool {
         let args = CommandLine.arguments
@@ -99,9 +108,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 case "rotateRight": viewer.pixlokRotateRight(nil)
                 case "next": viewer.browser?.next()
                 case "previous": viewer.browser?.previous()
+                case "newTab": self?.perform(.newTab, from: viewer)
+                case "newWindow": self?.perform(.newWindow, from: viewer)
                 default: FileHandle.standardError.write(Data("debug-view: unknown action \(action)\n".utf8))
                 }
             }
+        }
+        Self.writeDebugSnapshotIfRequested(after: 2.0 + 0.4 * Double(actions.count)) { [weak self] in
+            self?.frontmostViewer()
         }
         return true
     }
@@ -130,16 +144,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var pendingOpenFlush: DispatchWorkItem?
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if controllers.contains(where: { $0.editSession?.isSaving == true }) {
+        if controllers.contains(where: { $0.isSavingEdits }) {
             NSSound.beep()
             return .terminateCancel
         }
-        let dirty = controllers.filter { $0.editSession?.isDirty == true }
+        let dirty = controllers.filter { $0.hasUnsavedEdits }
         guard !dirty.isEmpty else { return .terminateNow }
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Quit and discard unsaved edits?"
-        let names = dirty.compactMap { $0.editSession?.url.lastPathComponent }.map { "“\($0)”" }
+        let names = dirty.compactMap { $0.editedFileName }.map { "“\($0)”" }
         alert.informativeText = "Edits to \(names.joined(separator: ", ")) haven’t been saved."
         alert.addButton(withTitle: "Discard and Quit").hasDestructiveAction = true
         alert.addButton(withTitle: "Cancel")
@@ -175,11 +189,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Window policy, per folder in the batch (only its first file is shown; the rest are
     /// reachable with ← →):
     /// - a window already showing that folder shows the file;
-    /// - otherwise the first such folder replaces the frontmost viewer's content (like
-    ///   Windows Photo Viewer), and every further folder gets a new window.
-    func openFiles(_ urls: [URL]) {
+    /// - otherwise the folder goes where Settings ▸ "Open other folders" says: a new window
+    ///   (default), a new tab of the frontmost viewer, or — for the first such folder — the
+    ///   frontmost viewer itself (like Windows Photo Viewer). An empty viewer is always reused.
+    ///
+    /// With an explicit `destination` the first folder goes there (this window, a new window or a
+    /// new tab) and every further folder gets a new window (or tab, for `.newTab`).
+    func openFiles(_ urls: [URL], destination: OpenDestination? = nil) {
         let files = urls.filter(\.isFileURL).map(\.standardizedFileURL)
         guard !files.isEmpty else { return }
+        if let destination {
+            openFiles(files, at: destination)
+            return
+        }
 
         // One entry per folder, in the order given.
         var seenFolders: Set<String> = []
@@ -197,30 +219,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 used.append(existing)
             }
         }
-        // Pass 2: the first remaining folder takes over the frontmost viewer (if it wasn't just
-        // claimed); the others get new windows.
+        // Pass 2: the first remaining folder may take over the frontmost viewer (if it wasn't just
+        // claimed): always when that window is empty, otherwise only with the "current window"
+        // setting (like Windows Photo Viewer). The others get new windows or tabs, per Settings.
+        let placement = settings.otherFolderPlacement
+        let front = frontmostViewer()
         if let i = targets.firstIndex(where: { $0 == nil }),
-           let front = frontmostViewer(), !used.contains(where: { $0 === front }) {
+           let front, !used.contains(where: { $0 === front }),
+           placement == .currentWindow || front.browser == nil {
             targets[i] = front
             used.append(front)
         }
 
-        var previous = frontmostViewer()?.window
+        var previous = front
         for (i, entry) in perFolder.enumerated() {
             let target: ViewerWindowController
             if let t = targets[i] {
                 target = t
             } else {
-                target = makeController(cascadingFrom: previous)
+                target = placement == .newTab && previous != nil
+                    ? makeTab(beside: previous)
+                    : makeController(cascadingFrom: previous?.window)
                 targets[i] = target
             }
             target.show(entry.url)
             target.showWindow(nil)
-            previous = target.window
+            previous = target
         }
         hasShownViewer = true
         targets.first??.window?.makeKeyAndOrderFront(nil)
         NSApp.activate()
+    }
+
+    /// Where an explicit open (top bar button, File ▸ New Tab …) puts the first folder.
+    enum OpenDestination {
+        case window(ViewerWindowController)
+        case newWindow
+        case newTab(beside: ViewerWindowController?)
+    }
+
+    private func openFiles(_ files: [URL], at destination: OpenDestination) {
+        var seenFolders: Set<String> = []
+        let firstPerFolder = files.filter { seenFolders.insert(Self.folderPath(of: $0)).inserted }
+        var previous = frontmostViewer()
+        var first: ViewerWindowController?
+        for (i, url) in firstPerFolder.enumerated() {
+            let target: ViewerWindowController
+            switch destination {
+            case .window(let c) where i == 0:
+                target = c
+            case .newTab(let beside):
+                target = makeTab(beside: beside ?? previous)
+            default:
+                target = makeController(cascadingFrom: previous?.window)
+            }
+            target.show(url)
+            target.showWindow(nil)
+            previous = target
+            if first == nil { first = target }
+        }
+        hasShownViewer = true
+        first?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
+
+    /// A new empty viewer added as a tab of `beside`'s window (a plain new window if there is none).
+    private func makeTab(beside: ViewerWindowController?) -> ViewerWindowController {
+        let c = makeController(cascadingFrom: beside?.window)
+        if let host = beside?.window, let tab = c.window {
+            host.addTabbedWindow(tab, ordered: .above)
+        }
+        return c
     }
 
     /// A viewer window whose current folder is `folder`, frontmost first.
@@ -230,7 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return candidates.first { c in
             // A window in edit mode isn't reused (that would interrupt the edit); the file goes
             // to the frontmost viewer or a new window instead.
-            !used.contains { $0 === c } && c.editSession == nil
+            !used.contains { $0 === c } && !c.isEditing
                 && c.browser?.folder.standardizedFileURL.path == folder
         }
     }
@@ -261,17 +330,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         c.onClose = { [weak self] closed in
             self?.controllers.removeAll { $0 === closed }
         }
-        c.onRequestOpenPanel = { [weak self] in self?.showOpenPanel() }
+        c.onRequestOpenAction = { [weak self] viewer, action in self?.perform(action, from: viewer) }
         c.onRequestSettings = { [weak self] in self?.showSettings(nil) }
         controllers.append(c)
         return c
     }
 
-    private func makeOpenPanel() -> NSOpenPanel {
+    private func makeOpenPanel(foldersOnly: Bool = false) -> NSOpenPanel {
         let panel = NSOpenPanel()
-        panel.title = "Open"
-        panel.message = "Choose an image, video, STL model or folder"
-        panel.canChooseFiles = true
+        panel.title = foldersOnly ? "Open Folder" : "Open"
+        panel.message = foldersOnly ? "Choose a folder to browse"
+            : "Choose an image, video, STL model, PDF or folder"
+        panel.canChooseFiles = !foldersOnly
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
         var types: [UTType] = [.folder]
@@ -284,19 +354,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return panel
     }
 
-    func showOpenPanel() {
-        let panel = makeOpenPanel()
+    func showOpenPanel(foldersOnly: Bool = false, destination: OpenDestination? = nil) {
+        let panel = makeOpenPanel(foldersOnly: foldersOnly)
         panel.begin { [weak self] response in
             MainActor.assumeIsolated {
                 guard response == .OK else { return }
-                self?.openFiles(panel.urls)
+                // The target window may have closed while the panel was up.
+                var destination = destination
+                if case .window(let c)? = destination, c.window?.isVisible != true { destination = nil }
+                self?.openFiles(panel.urls, destination: destination)
             }
+        }
+    }
+
+    /// Top bar "Open ▾" button / empty state actions for `viewer`.
+    func perform(_ action: ViewerOpenAction, from viewer: ViewerWindowController?) {
+        switch action {
+        case .openHere:
+            showOpenPanel(destination: viewer.map { .window($0) })
+        case .openFolderHere:
+            showOpenPanel(foldersOnly: true, destination: viewer.map { .window($0) })
+        case .openInNewWindow:
+            showOpenPanel(destination: .newWindow)
+        case .openInNewTab:
+            showOpenPanel(destination: .newTab(beside: viewer))
+        case .newWindow:
+            let c = makeController(cascadingFrom: viewer?.window ?? frontmostViewer()?.window)
+            c.showWindow(nil)
+            hasShownViewer = true
+        case .newTab:
+            let c = makeTab(beside: viewer ?? frontmostViewer())
+            c.showWindow(nil)
+            c.window?.makeKeyAndOrderFront(nil)
+            hasShownViewer = true
         }
     }
 
     // MARK: - Menu actions
 
-    @objc func openDocument(_ sender: Any?) { showOpenPanel() }
+    /// ⌘O: like the top bar's Open button, the choice is shown in the active window.
+    @objc func openDocument(_ sender: Any?) { perform(.openHere, from: activeViewer) }
+    @objc func openFolder(_ sender: Any?) { perform(.openFolderHere, from: activeViewer) }
+    @objc func newViewerWindow(_ sender: Any?) { perform(.newWindow, from: activeViewer) }
+    @objc func newViewerTab(_ sender: Any?) { perform(.newTab, from: activeViewer) }
+    /// The system's "+" in the tab bar.
+    @objc func newWindowForTab(_ sender: Any?) { perform(.newTab, from: activeViewer) }
 
     @objc func showSettings(_ sender: Any?) {
         if settingsWindow == nil {
@@ -315,6 +417,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate()
     }
 
+    @objc func checkForUpdates(_ sender: Any?) { UpdateService.shared.checkNow() }
+
     @objc func showAbout(_ sender: Any?) {
         let info = Bundle.main.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String ?? "1.0.0"
@@ -331,6 +435,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let alert = NSAlert()
         alert.messageText = "Keyboard Shortcuts"
         alert.informativeText = """
+        ⌘O   Open file or folder      ⌘⇧O   Open folder
+        ⌘N   New window      ⌘T   New tab
         ← →   Previous / next file
         Home / End   First / last file
         Space   Next image (play/pause for videos)

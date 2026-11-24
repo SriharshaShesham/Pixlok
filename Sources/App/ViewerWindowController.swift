@@ -15,11 +15,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     let chrome = ViewerChrome()
     /// Called when the window closes so the app delegate can release this controller.
     var onClose: ((ViewerWindowController) -> Void)?
-    /// Routed from the empty state's "Open…" and the menu.
-    var onRequestOpenPanel: (() -> Void)?
+    /// Routed from the top bar's open button and the empty state's "Open…".
+    var onRequestOpenAction: ((ViewerWindowController, ViewerOpenAction) -> Void)?
     var onRequestSettings: (() -> Void)?
 
     private var keyMonitor: Any?
+    private var layoutRectObservation: NSKeyValueObservation?
     private var browserSubscriptions = Set<AnyCancellable>()
     private var slideshow: SlideshowController?
     private var lastShownURL: URL?
@@ -30,6 +31,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     var editHost: EditHost { model.editHost }
     /// The edit session, when this window is in edit mode.
     var editSession: EditSession? { model.editHost.session }
+    /// The edit has unsaved changes / is being written.
+    var hasUnsavedEdits: Bool { editSession?.isDirty == true }
+    var isSavingEdits: Bool { editSession?.isSaving == true }
+    var editedFileName: String? { editSession?.url.lastPathComponent }
     var currentURL: URL? { model.browser?.current }
 
     init(settings: AppSettings) {
@@ -43,20 +48,37 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         window.backgroundColor = ViewerPalette.nsBackground
         window.contentMinSize = NSSize(width: 640, height: 420)
         window.isReleasedWhenClosed = false
-        window.tabbingMode = .disallowed
+        // Native window tabs (File ▸ New Tab, Window ▸ Merge All Windows).
+        window.tabbingMode = .automatic
+        window.tabbingIdentifier = "PixlokViewer"
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.title = "Pixlok"
         super.init(window: window)
         window.delegate = self
 
         let root = ViewerRootView(model: model, state: state, settings: settings, chrome: chrome, handler: self)
-        window.contentView = NSHostingView(rootView: root)
+        let hosting = NSHostingView(rootView: root)
+        // The content runs under the title bar (our top bar holds the traffic lights); when a tab
+        // bar is shown, ViewerRootView pads by `chrome.tabBarInset` instead of the safe area.
+        hosting.safeAreaRegions = []
+        window.contentView = hosting
 
         slideshow = SlideshowController(window: window, state: state, settings: settings, chrome: chrome) { [weak self] in
             guard let browser = self?.model.browser, browser.count > 1 else { return false }
             return browser.step(1)
         }
         installKeyMonitor()
+        // The tab bar appearing/disappearing changes contentLayoutRect (KVO-compliant).
+        layoutRectObservation = window.observe(\.contentLayoutRect, options: [.initial, .new]) { [weak self] _, _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.updateTabBarInset() } }
+        }
+    }
+
+    private func updateTabBarInset() {
+        guard let window, let content = window.contentView else { return }
+        let tabBarShown = window.tabGroup?.isTabBarVisible == true
+        let inset = tabBarShown ? max(0, content.bounds.height - window.contentLayoutRect.maxY) : 0
+        if chrome.tabBarInset != inset { chrome.tabBarInset = inset }
     }
 
     @available(*, unavailable)
@@ -81,9 +103,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     /// Shows `url` (a file or folder) in this window.
     func show(_ url: URL) {
-        if let session = editSession {
-            if session.isSaving { NSSound.beep(); return }
-            if session.isDirty {
+        if isEditing {
+            if isSavingEdits { NSSound.beep(); return }
+            if hasUnsavedEdits {
                 confirmDiscardEdits { [weak self] in
                     self?.endEditing()
                     self?.show(url)
@@ -246,7 +268,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         window?.makeKeyAndOrderFront(nil)
     }
 
-    func viewerShowOpenPanel() { onRequestOpenPanel?() }
+    func viewerShowOpenPanel() { onRequestOpenAction?(self, .openHere) }
+
+    func viewerPerform(_ action: ViewerOpenAction) { onRequestOpenAction?(self, action) }
 
     // MARK: - Menu actions (reached through the responder chain)
 
@@ -259,10 +283,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         if let url = currentURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
     }
     @objc func pixlokMoveToTrash(_ sender: Any?) { if !isEditing { viewerRequestTrash() } }
-    @objc func pixlokZoomIn(_ sender: Any?) { if canTransform && !isEditing { state.zoomIn() } }
-    @objc func pixlokZoomOut(_ sender: Any?) { if canTransform && !isEditing { state.zoomOut() } }
-    @objc func pixlokActualSize(_ sender: Any?) { if canTransform && !isEditing { state.actualSize() } }
-    @objc func pixlokZoomToFit(_ sender: Any?) { if canTransform && !isEditing { state.fit() } }
+    private var canZoom: Bool { canTransform && !isEditing }
+    @objc func pixlokZoomIn(_ sender: Any?) { if canZoom { state.zoomIn() } }
+    @objc func pixlokZoomOut(_ sender: Any?) { if canZoom { state.zoomOut() } }
+    @objc func pixlokActualSize(_ sender: Any?) { if canZoom { state.actualSize() } }
+    @objc func pixlokZoomToFit(_ sender: Any?) { if canZoom { state.fit() } }
     @objc func pixlokRotateLeft(_ sender: Any?) {
         if let session = editSession { if session.source != nil { session.rotate(clockwise: false) } }
         else if canTransform { state.rotateLeft() }
@@ -303,7 +328,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         switch item.action {
         case #selector(pixlokZoomIn(_:)), #selector(pixlokZoomOut(_:)), #selector(pixlokActualSize(_:)),
              #selector(pixlokZoomToFit(_:)):
-            return canTransform && !editing
+            return canZoom
         case #selector(pixlokRotateLeft(_:)), #selector(pixlokRotateRight(_:)):
             if let session = editSession { return session.source != nil && !session.isSaving }
             return canTransform
@@ -322,9 +347,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         case #selector(pixlokSaveEdits(_:)):
             return editSession?.canSave ?? false
         case #selector(pixlokCancelEditing(_:)):
-            return editing && editSession?.isSaving != true
+            return editing && !isSavingEdits
         case #selector(pixlokRevertToOriginal(_:)):
-            guard let url = currentURL, editSession?.isSaving != true else { return false }
+            guard let url = currentURL, !isSavingEdits else { return false }
             return EditSaveService.hasOriginal(for: url)
         case #selector(pixlokOpenInPrimaryEditor(_:)), #selector(pixlokOpenWithApp(_:)), #selector(pixlokChooseApplication(_:)):
             // Another app changing the file under unsaved edits would make Save apply them to
@@ -450,8 +475,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     }
 
     func editRequestCancel() {
-        guard let session = editSession, !session.isSaving else { return }
-        if session.isDirty {
+        guard isEditing, !isSavingEdits else { return }
+        if hasUnsavedEdits {
             confirmDiscardEdits { [weak self] in self?.endEditing() }
         } else {
             endEditing()
@@ -477,7 +502,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     func editRequestRevert() {
         guard let url = currentURL, let window, window.attachedSheet == nil,
-              editSession?.isSaving != true, EditSaveService.hasOriginal(for: url) else { return }
+              !isSavingEdits, EditSaveService.hasOriginal(for: url) else { return }
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Revert “\(url.lastPathComponent)” to the original?"
@@ -530,7 +555,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Discard changes?"
-        if let name = editSession?.url.lastPathComponent {
+        if let name = editedFileName {
             alert.informativeText = "Your edits to “\(name)” haven’t been saved."
         }
         alert.addButton(withTitle: "Discard").hasDestructiveAction = true
@@ -547,9 +572,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     // MARK: - NSWindowDelegate
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard let session = editSession else { return true }
-        if session.isSaving { NSSound.beep(); return false }
-        guard session.isDirty else { endEditing(); return true }
+        guard isEditing else { return true }
+        if isSavingEdits { NSSound.beep(); return false }
+        guard hasUnsavedEdits else { endEditing(); return true }
         confirmDiscardEdits { [weak self] in
             self?.endEditing()
             self?.window?.close()
@@ -586,6 +611,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
         browserSubscriptions.removeAll()
+        layoutRectObservation = nil
         onClose?(self)
     }
 

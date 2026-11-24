@@ -14,7 +14,7 @@ struct ViewerRootView: View {
     @ObservedObject var model: ViewerWindowModel
     let state: ViewerState
     let settings: AppSettings
-    let chrome: ViewerChrome
+    @ObservedObject var chrome: ViewerChrome
     weak var handler: ViewerCommandHandler?
 
     var body: some View {
@@ -27,6 +27,10 @@ struct ViewerRootView: View {
                 ViewerEmptyWindowView(handler: handler)
             }
         }
+        .environment(\.viewerTopBarLeading, chrome.tabBarInset > 0 ? 12 : 80)
+        .padding(.top, chrome.tabBarInset)
+        .background(ViewerPalette.bar)
+        .ignoresSafeArea()
         .preferredColorScheme(.dark)
     }
 }
@@ -34,6 +38,7 @@ struct ViewerRootView: View {
 /// Shown when no file is open: "Open a file or drop one here".
 struct ViewerEmptyWindowView: View {
     weak var handler: ViewerCommandHandler?
+    @Environment(\.viewerTopBarLeading) private var topBarLeading
     @State private var isTargeted = false
 
     var body: some View {
@@ -44,6 +49,11 @@ struct ViewerEmptyWindowView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(ViewerPalette.primaryText)
                     .allowsHitTesting(false)
+                HStack {
+                    ViewerOpenButton(handler: handler)
+                    Spacer()
+                }
+                .padding(.leading, topBarLeading)
             }
             .frame(height: 44)
             .background(ViewerPalette.bar)
@@ -58,7 +68,7 @@ struct ViewerEmptyWindowView: View {
                     Text("Open a file or drop one here")
                         .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(ViewerPalette.primaryText)
-                    Text("Images, SVG, STL models and videos. Use ← → to browse the folder.")
+                    Text("Images, SVG, STL models, videos and PDFs. Use ← → to browse the folder.")
                         .font(.system(size: 12))
                         .foregroundStyle(ViewerPalette.secondaryText)
                     Button("Open…") { handler?.viewerShowOpenPanel() }

@@ -22,6 +22,22 @@ final class ViewerChrome: ObservableObject {
     /// During a slideshow the bars/arrows/toolbar are hidden until the mouse moves.
     @Published var controlsVisible = true
     @Published var isFullScreen = false
+    /// Height of the system title bar + tab bar while the window's tab bar is shown (the viewer
+    /// sits below it); 0 otherwise, when our own top bar holds the traffic lights.
+    @Published var tabBarInset: CGFloat = 0
+}
+
+private struct ViewerTopBarLeadingKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 80
+}
+
+extension EnvironmentValues {
+    /// Leading space the top bar keeps free: room for the traffic lights, unless a tab bar moved
+    /// them out of our bar.
+    var viewerTopBarLeading: CGFloat {
+        get { self[ViewerTopBarLeadingKey.self] }
+        set { self[ViewerTopBarLeadingKey.self] = newValue }
+    }
 }
 
 /// Actions the SwiftUI viewer forwards to its window controller.
@@ -37,6 +53,20 @@ protocol ViewerCommandHandler: AnyObject {
     func viewerShowSettings()
     func viewerOpenFiles(_ urls: [URL])
     func viewerShowOpenPanel()
+    /// Open / New window / New tab commands from the top bar's open button.
+    func viewerPerform(_ action: ViewerOpenAction)
+}
+
+/// What the top bar's "Open ▾" button can do.
+enum ViewerOpenAction {
+    /// Choose a file or folder and show it in this window.
+    case openHere
+    /// Choose a folder and show it in this window.
+    case openFolderHere
+    /// Choose a file or folder and show it in a new window / new tab.
+    case openInNewWindow, openInNewTab
+    /// Empty new window / tab.
+    case newWindow, newTab
 }
 
 /// Lets a SwiftUI area start a window drag (our own top bar replaces the hidden title bar).

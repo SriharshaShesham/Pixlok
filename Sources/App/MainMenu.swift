@@ -30,6 +30,7 @@ enum MainMenu {
         let name = "Pixlok"
         let m = NSMenu(title: name)
         m.addItem(item("About \(name)", #selector(AppDelegate.showAbout(_:)), target: delegate))
+        m.addItem(item("Check for Updates…", #selector(AppDelegate.checkForUpdates(_:)), target: delegate))
         m.addItem(.separator())
         m.addItem(item("Settings…", #selector(AppDelegate.showSettings(_:)), ",", target: delegate))
         m.addItem(.separator())
@@ -50,7 +51,11 @@ enum MainMenu {
     private static func fileMenu(_ delegate: AppDelegate) -> NSMenu {
         let m = NSMenu(title: "File")
         m.delegate = delegate
+        m.addItem(item("New Window", #selector(AppDelegate.newViewerWindow(_:)), "n", target: delegate))
+        m.addItem(item("New Tab", #selector(AppDelegate.newViewerTab(_:)), "t", target: delegate))
+        m.addItem(.separator())
         m.addItem(item("Open…", #selector(AppDelegate.openDocument(_:)), "o", target: delegate))
+        m.addItem(item("Open Folder…", #selector(AppDelegate.openFolder(_:)), "o", [.command, .shift], target: delegate))
         m.addItem(.separator())
         let edit = item("Edit in…", #selector(ViewerWindowController.pixlokOpenInPrimaryEditor(_:)), "e")
         edit.tag = editInTag
