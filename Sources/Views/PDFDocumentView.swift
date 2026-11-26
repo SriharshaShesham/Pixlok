@@ -2,16 +2,23 @@ import SwiftUI
 import AppKit
 import PDFKit
 
-/// PDF display via PDFKit: all pages in one vertically scrolling column, honouring
-/// ViewerState zoom/rotation. Scale 1.0 = 100% (one PDF point per screen point);
-/// "Fit" lets PDFKit fit the page width to the window.
+/// PDF display via PDFKit, with a strip on top (sidebar, page layout, search), an optional
+/// thumbnails / contents sidebar, and — while a `PDFEditSession` is active — annotation tools
+/// (the session's panel sits on the right, see `PDFEditPanelView`).
 ///
-/// Rotation is view-only: it changes the pages of the in-memory document, which is
-/// never written back to disk.
+/// View rotation (toolbar ⟲ ⟳) changes the in-memory pages only and is never saved; page rotation
+/// in edit mode is a real edit.
 struct PDFDocumentView: View {
     let url: URL
     @ObservedObject var state: ViewerState
+    @ObservedObject var editHost: EditHost
+    weak var handler: ViewerCommandHandler?
     @StateObject private var model = PDFModel()
+
+    private var session: PDFEditSession? {
+        guard let s = editHost.pdfSession, s.url == url, s.document === model.document else { return nil }
+        return s
+    }
 
     var body: some View {
         ZStack {
@@ -27,17 +34,45 @@ struct PDFDocumentView: View {
                 }
             case .loaded:
                 if let doc = model.document {
-                    PDFKitRepresentable(document: doc, state: state, page: $model.pageLabel)
-                        .overlay(alignment: .topLeading) {
-                            if let label = model.pageLabel {
-                                PDFPageBadge(text: label).padding(12)
+                    VStack(spacing: 0) {
+                        PDFTopStrip(model: model, session: session)
+                        HStack(spacing: 0) {
+                            if model.showSidebar {
+                                PDFSidebar(model: model, document: doc)
+                                    .frame(width: 168)
+                                    .overlay(alignment: .trailing) { Rectangle().fill(ViewerPalette.border).frame(width: 1) }
                             }
+                            PDFKitRepresentable(model: model, document: doc, state: state, session: session,
+                                                onRequestEdit: { (handler as? EditCommandHandler)?.editBegin() })
+                                .overlay(alignment: .topLeading) {
+                                    if let label = model.pageLabel {
+                                        PDFPageBadge(text: label).padding(12)
+                                    }
+                                }
                         }
+                    }
                 }
             }
         }
-        .task(id: url) { await model.load(url) }
+        .task(id: url) {
+            editHost.livePDF = model
+            await model.load(url, cachedPassword: editHost.pdfPasswords[url.standardizedFileURL.path])
+        }
+        .onChange(of: model.unlockedPassword) {
+            if let p = model.unlockedPassword { editHost.pdfPasswords[url.standardizedFileURL.path] = p }
+        }
+        .onDisappear { if editHost.livePDF === model { editHost.livePDF = nil } }
+        .onReceive(NotificationCenter.default.publisher(for: .pixlokFind)) { note in
+            guard note.object as? PDFModel === model || note.object == nil else { return }
+            model.showSearch = true
+            model.focusSearchToken += 1
+        }
     }
+}
+
+extension Notification.Name {
+    /// Edit ▸ Find (⌘F): focus the PDF search field of the key window's document.
+    static let pixlokFind = Notification.Name("PixlokFind")
 }
 
 @MainActor
@@ -48,12 +83,31 @@ final class PDFModel: ObservableObject {
     @Published private(set) var phase: Phase = .loading
     /// "Page 3 of 12", nil for single-page documents.
     @Published var pageLabel: String?
+    /// The password that unlocked the document (kept so saving can keep it protected).
+    @Published private(set) var unlockedPassword: String?
     private(set) var url: URL?
+    /// One PDF view per model, shared by the page area and the thumbnails.
+    let pdfView = PDFCanvasView()
 
-    func load(_ url: URL) async {
+    // View options.
+    @Published var showSidebar = false
+    @Published var sidebarTab = 0                  // 0 thumbnails, 1 contents
+    @Published var displayMode: PDFDisplayMode = .singlePageContinuous
+    @Published var displaysAsBook = false
+
+    // Search.
+    @Published var showSearch = false
+    @Published var query = ""
+    @Published private(set) var matches: [PDFSelection] = []
+    @Published private(set) var matchIndex = 0
+    @Published var focusSearchToken = 0
+    private var searchTask: Task<Void, Never>?
+
+    func load(_ url: URL, cachedPassword: String? = nil) async {
         self.url = url
         document = nil
         pageLabel = nil
+        unlockedPassword = nil
         phase = .loading
         // PDFDocument parses lazily, so opening even a large file is quick.
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -65,6 +119,9 @@ final class PDFModel: ObservableObject {
             return
         }
         document = doc
+        if doc.isLocked, let cachedPassword, doc.unlock(withPassword: cachedPassword) {
+            unlockedPassword = cachedPassword
+        }
         if doc.isLocked {
             phase = .locked
         } else if doc.pageCount == 0 {
@@ -78,8 +135,290 @@ final class PDFModel: ObservableObject {
     @discardableResult
     func unlock(_ doc: PDFDocument, password: String) -> Bool {
         guard document === doc, doc.unlock(withPassword: password) else { return false }
+        unlockedPassword = password
         phase = doc.pageCount == 0 ? .failed("This PDF has no pages.") : .loaded
         return true
+    }
+
+    // MARK: Search
+
+    func search() {
+        searchTask?.cancel()
+        let text = query.trimmingCharacters(in: .whitespaces)
+        guard let doc = document, !text.isEmpty else {
+            matches = []
+            pdfView.highlightedSelections = nil
+            return
+        }
+        // findString is synchronous; run it on the next turn so typing stays responsive.
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(180))
+            guard let self, !Task.isCancelled else { return }
+            let found = doc.findString(text, withOptions: [.caseInsensitive, .diacriticInsensitive])
+            found.forEach { $0.color = NSColor.systemYellow.withAlphaComponent(0.6) }
+            self.matches = found
+            self.matchIndex = 0
+            self.pdfView.highlightedSelections = found
+            self.showMatch()
+        }
+    }
+
+    func step(_ delta: Int) {
+        guard !matches.isEmpty else { NSSound.beep(); return }
+        matchIndex = (matchIndex + delta + matches.count) % matches.count
+        showMatch()
+    }
+
+    private func showMatch() {
+        guard matches.indices.contains(matchIndex) else { return }
+        let m = matches[matchIndex]
+        pdfView.setCurrentSelection(m, animate: false)
+        pdfView.scrollSelectionToVisible(nil)
+    }
+
+    func endSearch() {
+        query = ""
+        matches = []
+        showSearch = false
+        pdfView.highlightedSelections = nil
+        pdfView.clearSelection()
+    }
+
+    func applyDisplayMode() {
+        pdfView.displayMode = displayMode
+        pdfView.displaysAsBook = displaysAsBook
+        pdfView.layoutDocumentView()
+    }
+
+    func print(in window: NSWindow?) {
+        guard let doc = document,
+              let op = doc.printOperation(for: NSPrintInfo.shared, scalingMode: .pageScaleToFit, autoRotate: true) else {
+            NSSound.beep(); return
+        }
+        op.jobTitle = url?.deletingPathExtension().lastPathComponent
+        if let window { op.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil) } else { op.run() }
+    }
+}
+
+// MARK: - Top strip
+
+private struct PDFTopStrip: View {
+    @ObservedObject var model: PDFModel
+    let session: PDFEditSession?
+    @FocusState private var searchFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            stripButton("sidebar.left", help: model.showSidebar ? "Hide sidebar" : "Show page thumbnails and contents",
+                        on: model.showSidebar) { model.showSidebar.toggle() }
+            Menu {
+                Picker("Layout", selection: $model.displayMode) {
+                    Text("Single Page").tag(PDFDisplayMode.singlePage)
+                    Text("Single Page Continuous").tag(PDFDisplayMode.singlePageContinuous)
+                    Text("Two Pages").tag(PDFDisplayMode.twoUp)
+                    Text("Two Pages Continuous").tag(PDFDisplayMode.twoUpContinuous)
+                }
+                .pickerStyle(.inline)
+                Divider()
+                Toggle("Show Cover Page Separately", isOn: $model.displaysAsBook)
+                    .disabled(model.displayMode != .twoUp && model.displayMode != .twoUpContinuous)
+            } label: {
+                Image(systemName: model.displayMode == .twoUp || model.displayMode == .twoUpContinuous
+                      ? "book" : "doc.plaintext")
+                    .font(.system(size: 12))
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.visible)
+            .fixedSize()
+            .help("Page layout")
+            .onChange(of: model.displayMode) { model.applyDisplayMode() }
+            .onChange(of: model.displaysAsBook) { model.applyDisplayMode() }
+
+            if let session {
+                PDFToolRow(session: session)
+                    .padding(.leading, 6)
+            }
+
+            Spacer(minLength: 8)
+
+            if model.showSearch {
+                HStack(spacing: 4) {
+                    Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(ViewerPalette.secondaryText)
+                    TextField("Search", text: $model.query)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .frame(width: 150)
+                        .focused($searchFocused)
+                        .onSubmit { model.step(NSEvent.modifierFlags.contains(.shift) ? -1 : 1) }
+                        .onChange(of: model.query) { model.search() }
+                        .onExitCommand { model.endSearch() }
+                    if !model.query.isEmpty {
+                        Text(model.matches.isEmpty ? "0" : "\(model.matchIndex + 1)/\(model.matches.count)")
+                            .font(.system(size: 11).monospacedDigit())
+                            .foregroundStyle(ViewerPalette.secondaryText)
+                    }
+                    stripButton("chevron.up", help: "Previous match (⇧⌘G)") { model.step(-1) }
+                        .disabled(model.matches.isEmpty)
+                    stripButton("chevron.down", help: "Next match (⌘G)") { model.step(1) }
+                        .disabled(model.matches.isEmpty)
+                    stripButton("xmark.circle.fill", help: "Close search (Esc)") { model.endSearch() }
+                }
+                .padding(.horizontal, 8)
+                .frame(height: 24)
+                .background(RoundedRectangle(cornerRadius: 6).fill(ViewerPalette.pill))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(ViewerPalette.border))
+            } else {
+                stripButton("magnifyingglass", help: "Search (⌘F)") {
+                    model.showSearch = true
+                    model.focusSearchToken += 1
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 36)
+        .background(ViewerPalette.bar)
+        .overlay(alignment: .bottom) { Rectangle().fill(ViewerPalette.border).frame(height: 1) }
+        .onChange(of: model.focusSearchToken) {
+            DispatchQueue.main.async { searchFocused = true }
+        }
+    }
+
+    private func stripButton(_ symbol: String, help: String, on: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12))
+                .foregroundStyle(on ? ViewerPalette.accent : ViewerPalette.primaryText)
+                .frame(width: 24, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+}
+
+/// Tool buttons shown in the strip while editing.
+struct PDFToolRow: View {
+    @ObservedObject var session: PDFEditSession
+
+    var body: some View {
+        HStack(spacing: 2) {
+            tool(.select)
+            divider
+            ForEach(PDFTool.markupTools, id: \.self) { tool($0) }
+            divider
+            ForEach(PDFTool.drawTools, id: \.self) { tool($0) }
+            divider
+            ForEach(PDFEditSession.palette.indices, id: \.self) { i in
+                Circle()
+                    .fill(Color(nsColor: PDFEditSession.palette[i]))
+                    .frame(width: 13, height: 13)
+                    .overlay(Circle().strokeBorder(Color.white.opacity(session.colorIndex == i ? 0.95 : 0.15),
+                                                   lineWidth: session.colorIndex == i ? 2 : 1))
+                    .padding(2)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        session.colorIndex = i
+                        if let a = session.selected { session.setColor(i, of: a) }
+                    }
+                    .help("Colour")
+            }
+        }
+    }
+
+    private var divider: some View {
+        Rectangle().fill(ViewerPalette.border).frame(width: 1, height: 16).padding(.horizontal, 4)
+    }
+
+    private func tool(_ t: PDFTool) -> some View {
+        let on = session.tool == t
+        return Button {
+            session.tool = t
+        } label: {
+            Image(systemName: t.symbol)
+                .font(.system(size: 12))
+                .foregroundStyle(on ? Color.white : ViewerPalette.primaryText)
+                .frame(width: 26, height: 22)
+                .background(RoundedRectangle(cornerRadius: 5).fill(on ? ViewerPalette.accent : Color.clear))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(t.label + (t.isTextMarkup ? " — select text to apply" : ""))
+    }
+}
+
+// MARK: - Sidebar
+
+private struct PDFSidebar: View {
+    @ObservedObject var model: PDFModel
+    let document: PDFDocument
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if document.outlineRoot.map({ $0.numberOfChildren > 0 }) == true {
+                Picker("", selection: $model.sidebarTab) {
+                    Text("Pages").tag(0)
+                    Text("Contents").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(8)
+            }
+            if model.sidebarTab == 1, let root = document.outlineRoot, root.numberOfChildren > 0 {
+                List {
+                    OutlineGroup(PDFOutlineItem.children(of: root), children: \.children) { item in
+                        Text(item.label)
+                            .font(.system(size: 12))
+                            .lineLimit(2)
+                            .contentShape(Rectangle())
+                            .onTapGesture { item.go(in: model.pdfView) }
+                    }
+                }
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
+            } else {
+                PDFThumbnailsRepresentable(pdfView: model.pdfView)
+            }
+        }
+        .background(ViewerPalette.background)
+    }
+}
+
+/// One entry of the document outline (table of contents).
+struct PDFOutlineItem: Identifiable {
+    let id = UUID()
+    let outline: PDFOutline
+    var label: String { outline.label ?? "Untitled" }
+    var children: [PDFOutlineItem]? {
+        outline.numberOfChildren > 0 ? Self.children(of: outline) : nil
+    }
+
+    static func children(of o: PDFOutline) -> [PDFOutlineItem] {
+        (0..<o.numberOfChildren).compactMap { o.child(at: $0).map { PDFOutlineItem(outline: $0) } }
+    }
+
+    @MainActor func go(in view: PDFView) {
+        if let dest = outline.destination { view.go(to: dest) }
+        else if let action = outline.action { view.perform(action) }
+    }
+}
+
+private struct PDFThumbnailsRepresentable: NSViewRepresentable {
+    let pdfView: PDFCanvasView
+
+    func makeNSView(context: Context) -> PDFThumbnailView {
+        let t = PDFThumbnailView()
+        t.pdfView = pdfView
+        t.thumbnailSize = CGSize(width: 120, height: 150)
+        t.backgroundColor = NSColor(red: 0x14 / 255, green: 0x14 / 255, blue: 0x16 / 255, alpha: 1)
+        t.allowsMultipleSelection = true
+        t.allowsDragging = false
+        pdfView.thumbnailView = t
+        return t
+    }
+
+    func updateNSView(_ view: PDFThumbnailView, context: Context) {
+        if view.pdfView !== pdfView { view.pdfView = pdfView }
+        pdfView.thumbnailView = view
     }
 }
 
@@ -140,17 +479,19 @@ private struct PDFUnlockView: View {
     }
 }
 
-/// Hosts a PDFView and keeps it in sync with ViewerState.
+/// Hosts the model's PDF view and keeps it in sync with ViewerState and the edit session.
 private struct PDFKitRepresentable: NSViewRepresentable {
+    @ObservedObject var model: PDFModel
     let document: PDFDocument
     @ObservedObject var state: ViewerState
-    @Binding var page: String?
+    let session: PDFEditSession?
+    let onRequestEdit: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeNSView(context: Context) -> PDFView {
-        let view = PDFView()
-        view.displayMode = .singlePageContinuous
+    func makeNSView(context: Context) -> PDFCanvasView {
+        let view = model.pdfView
+        view.displayMode = model.displayMode
         view.displayDirection = .vertical
         view.displaysPageBreaks = true
         view.pageBreakMargins = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
@@ -160,12 +501,14 @@ private struct PDFKitRepresentable: NSViewRepresentable {
         let c = context.coordinator
         c.view = view
         c.state = state
-        c.pageBinding = $page
+        c.model = model
         c.attach(document)
         NotificationCenter.default.addObserver(c, selector: #selector(Coordinator.scaleChanged),
                                                name: .PDFViewScaleChanged, object: view)
         NotificationCenter.default.addObserver(c, selector: #selector(Coordinator.pageChanged),
                                                name: .PDFViewPageChanged, object: view)
+        NotificationCenter.default.addObserver(c, selector: #selector(Coordinator.pageChanged),
+                                               name: .PDFDocumentDidUnlock, object: nil)
         c.apply(zoom: state.zoom, turns: state.rotationQuarterTurns)
         c.pageChanged()
         // Focus the document so ↑ / ↓ scroll it straight away (← → stay folder navigation,
@@ -178,15 +521,23 @@ private struct PDFKitRepresentable: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ view: PDFView, context: Context) {
+    func updateNSView(_ view: PDFCanvasView, context: Context) {
         let c = context.coordinator
         c.state = state
-        c.pageBinding = $page
+        c.model = model
+        view.onRequestEdit = onRequestEdit
         if view.document !== document { c.attach(document) }
-        c.apply(zoom: state.zoom, turns: state.rotationQuarterTurns)
+        if view.session !== session {
+            view.session = session
+            session?.pdfView = view
+        }
+        // In edit mode page rotation is a real edit; the view rotation stays at 0.
+        if session == nil { c.apply(zoom: state.zoom, turns: state.rotationQuarterTurns) }
+        else { c.apply(zoom: state.zoom, turns: 0) }
+        c.pageChanged()
     }
 
-    static func dismantleNSView(_ view: PDFView, coordinator: Coordinator) {
+    static func dismantleNSView(_ view: PDFCanvasView, coordinator: Coordinator) {
         NotificationCenter.default.removeObserver(coordinator)
     }
 
@@ -194,7 +545,7 @@ private struct PDFKitRepresentable: NSViewRepresentable {
     final class Coordinator: NSObject {
         weak var view: PDFView?
         weak var state: ViewerState?
-        var pageBinding: Binding<String?>?
+        weak var model: PDFModel?
         /// Each page's own rotation, so view rotation is applied on top of it.
         private var baseRotations: [Int] = []
         private var appliedTurns = 0
@@ -258,9 +609,9 @@ private struct PDFKitRepresentable: NSViewRepresentable {
             if count > 1, let page = view.currentPage {
                 text = "Page \(doc.index(for: page) + 1) of \(count)"
             }
-            let binding = pageBinding
+            let model = self.model
             DispatchQueue.main.async {
-                if binding?.wrappedValue != text { binding?.wrappedValue = text }
+                if model?.pageLabel != text { model?.pageLabel = text }
             }
         }
 

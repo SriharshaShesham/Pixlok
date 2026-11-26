@@ -28,6 +28,13 @@ struct ViewerView: View {
     }
     private var editHandler: EditCommandHandler? { handler as? EditCommandHandler }
 
+    /// The PDF edit session for the file on screen (nil when not editing it).
+    private var pdfSession: PDFEditSession? {
+        guard let s = editHost.pdfSession, s.url == browser.current else { return nil }
+        return s
+    }
+    private var isEditingAnything: Bool { editSession != nil || pdfSession != nil }
+
     private var category: MediaCategory? {
         browser.current.flatMap { FormatRegistry.format(for: $0)?.category }
     }
@@ -36,7 +43,7 @@ struct ViewerView: View {
     /// Bars/arrows/toolbar visible (always, except while a slideshow hides them).
     private var controlsShown: Bool { !slideshow || chrome.controlsVisible }
     /// ‹ ›, badge and toolbar pill are hidden while editing.
-    private var navigationShown: Bool { controlsShown && editSession == nil }
+    private var navigationShown: Bool { controlsShown && !isEditingAnything }
     /// Images float the toolbar over the picture; STL and video keep their own
     /// bottom controls visible, so the toolbar gets a strip of its own there.
     private var toolbarFloats: Bool { category == .raster || category == .svg || category == .pdf || category == nil }
@@ -49,6 +56,8 @@ struct ViewerView: View {
         default: return 0
         }
     }
+    /// The PDF view's own strip (sidebar, layout, search) at the top of the media area.
+    private let pdfStripInset: CGFloat = 36
     /// Height of AVPlayerView's inline top control row, which the position badge must clear.
     private let videoTopControlsInset: CGFloat = 48
     /// Space kept clear under the media for the floating toolbar pill (≈40pt pill + 18pt
@@ -59,7 +68,7 @@ struct ViewerView: View {
         VStack(spacing: 0) {
             if !slideshow {
                 ViewerTopBar(browser: browser, settings: settings, showInfo: $state.showInfo,
-                             isEditing: editSession != nil, handler: handler)
+                             isEditing: isEditingAnything, handler: handler)
             }
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
@@ -74,6 +83,10 @@ struct ViewerView: View {
                 if let session = editSession {
                     EditPanelView(session: session, handler: editHandler)
                         .transition(.move(edge: .trailing))
+                } else if let pdf = pdfSession {
+                    PDFEditPanelView(session: pdf, handler: editHandler, pdfHandler: handler as? PDFEditCommandHandler)
+                        .id(ObjectIdentifier(pdf))
+                        .transition(.move(edge: .trailing))
                 } else if state.showInfo && !slideshow, let url = browser.current {
                     InfoPanelView(url: url)
                         .frame(width: 280)
@@ -86,7 +99,7 @@ struct ViewerView: View {
         .preferredColorScheme(.dark)
         .animation(.easeInOut(duration: 0.2), value: controlsShown)
         .animation(.easeInOut(duration: 0.2), value: state.showInfo)
-        .animation(.easeInOut(duration: 0.2), value: editSession != nil)
+        .animation(.easeInOut(duration: 0.2), value: isEditingAnything)
         .onChange(of: browser.current) { state.resetForNewItem() }
         .dropDestination(for: URL.self) { urls, _ in
             let files = urls.filter(\.isFileURL)
@@ -112,7 +125,7 @@ struct ViewerView: View {
                 // The revision re-creates the view (and re-decodes) after an edit was saved over `url`.
                 mediaView(for: url)
                     .id("\(url.path)#\(editHost.contentRevision)")
-                    .padding(.bottom, (toolbarFloats && !slideshow && controlsShown) ? floatingToolbarReserve : 0)
+                    .padding(.bottom, (toolbarFloats && !slideshow && navigationShown) ? floatingToolbarReserve : 0)
             } else {
                 emptyFolder
             }
@@ -129,7 +142,7 @@ struct ViewerView: View {
                     .padding(.trailing, trailingOverlayInset)
                     // AVKit's inline player draws its own top control row (full screen, AirPlay,
                     // volume) in the corners; sit the badge below it instead of on top of it.
-                    .padding(.top, category == .video ? videoTopControlsInset : 0)
+                    .padding(.top, category == .video ? videoTopControlsInset : (category == .pdf ? pdfStripInset : 0))
                     .transition(.opacity)
             }
         }
@@ -150,7 +163,7 @@ struct ViewerView: View {
         case .svg: SVGView(url: url, state: state)
         case .model3D: STLView(url: url)
         case .video: VideoView(url: url)
-        case .pdf: PDFDocumentView(url: url, state: state)
+        case .pdf: PDFDocumentView(url: url, state: state, editHost: editHost, handler: handler)
         case nil:
             ViewerMessageView(symbol: "questionmark.square.dashed",
                               title: "Can’t show “\(url.lastPathComponent)”",
@@ -162,7 +175,7 @@ struct ViewerView: View {
         VStack(spacing: 14) {
             ViewerMessageView(symbol: "photo.on.rectangle.angled",
                               title: "No viewable files in “\(browser.folder.lastPathComponent)”",
-                              detail: "Turn on more file types in Settings, or open another file.")
+                              detail: "Tick more types under Files Pixlok opens in Settings, or open another file.")
             HStack(spacing: 10) {
                 Button("Open…") { handler?.viewerShowOpenPanel() }
                     .buttonStyle(ViewerAccentButtonStyle())

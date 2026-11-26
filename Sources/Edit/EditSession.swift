@@ -371,17 +371,24 @@ final class EditSession: ObservableObject {
 @MainActor
 final class EditHost: ObservableObject {
     @Published var session: EditSession?
+    /// PDF edit mode (annotate / sign / fill forms / pages) for the PDF on screen.
+    @Published var pdfSession: PDFEditSession?
+    /// The PDF currently shown (its live document and view), for edit mode, print and find.
+    weak var livePDF: PDFModel?
+    /// Passwords that unlocked PDFs in this window, so reloading after a save doesn't ask again.
+    var pdfPasswords: [String: String] = [:]
     /// Bumped after a save/revert so media views re-decode a file whose URL didn't change.
     @Published var contentRevision = 0
     private var editableCache: [String: Bool] = [:]
 
-    var isEditing: Bool { session != nil }
+    var isEditing: Bool { session != nil || pdfSession != nil }
 
     /// Memoized `ImageEditPipeline.canEdit` (it may read the file header).
     func canEdit(_ url: URL) -> Bool {
         let key = url.standardizedFileURL.path
         if let hit = editableCache[key] { return hit }
-        let ok = FormatRegistry.format(for: url)?.category == .raster && ImageEditPipeline.canEdit(url)
+        let category = FormatRegistry.format(for: url)?.category
+        let ok = category == .pdf || (category == .raster && ImageEditPipeline.canEdit(url))
         editableCache[key] = ok
         return ok
     }
@@ -393,12 +400,12 @@ final class EditHost: ObservableObject {
     /// Tooltip for the Edit button.
     func editHelp(for url: URL?) -> String {
         guard let url else { return "Edit" }
+        if FormatRegistry.format(for: url)?.category == .pdf { return "Annotate, sign, fill in forms, edit pages (E)" }
         if canEdit(url) { return "Edit (E)" }
         switch FormatRegistry.format(for: url)?.category {
         case .svg: return "Editing isn’t available for SVG files"
         case .model3D: return "Editing isn’t available for 3D models"
         case .video: return "Editing isn’t available for videos"
-        case .pdf: return "Editing isn’t available for PDF documents"
         default: return "Editing isn’t available for this image (animated or unsupported)"
         }
     }

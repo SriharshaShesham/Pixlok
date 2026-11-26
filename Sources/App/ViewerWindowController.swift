@@ -21,6 +21,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     private var keyMonitor: Any?
     private var layoutRectObservation: NSKeyValueObservation?
+    /// Undo for text fields when no PDF edit is active.
+    private let windowUndoManager = UndoManager()
     private var browserSubscriptions = Set<AnyCancellable>()
     private var slideshow: SlideshowController?
     private var lastShownURL: URL?
@@ -31,10 +33,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     var editHost: EditHost { model.editHost }
     /// The edit session, when this window is in edit mode.
     var editSession: EditSession? { model.editHost.session }
-    /// The edit has unsaved changes / is being written.
-    var hasUnsavedEdits: Bool { editSession?.isDirty == true }
-    var isSavingEdits: Bool { editSession?.isSaving == true }
-    var editedFileName: String? { editSession?.url.lastPathComponent }
+    /// The PDF edit session, when this window is editing a PDF.
+    var pdfSession: PDFEditSession? { model.editHost.pdfSession }
+    /// Either kind of edit has unsaved changes / is being written.
+    var hasUnsavedEdits: Bool { editSession?.isDirty == true || pdfSession?.isDirty == true }
+    var isSavingEdits: Bool { editSession?.isSaving == true || pdfSession?.isSaving == true }
+    var editedFileName: String? { (editSession?.url ?? pdfSession?.url)?.lastPathComponent }
     var currentURL: URL? { model.browser?.current }
 
     init(settings: AppSettings) {
@@ -151,6 +155,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         lastShownURL = url
         // The edited file went away (reload, external change): leave edit mode.
         if let session = editSession, session.url != url { endEditing() }
+        if let pdf = pdfSession, pdf.url != url { endEditing() }
         state.resetForNewItem()
         // Drop a read-only text selection (Info / STL panel) so focus returns to the window.
         if let window, let text = window.firstResponder as? NSText, !text.isEditable {
@@ -283,19 +288,29 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         if let url = currentURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
     }
     @objc func pixlokMoveToTrash(_ sender: Any?) { if !isEditing { viewerRequestTrash() } }
-    private var canZoom: Bool { canTransform && !isEditing }
+    /// Zoom works in view mode and while editing a PDF (the image editor has its own zoom).
+    private var canZoom: Bool { canTransform && editSession == nil }
     @objc func pixlokZoomIn(_ sender: Any?) { if canZoom { state.zoomIn() } }
     @objc func pixlokZoomOut(_ sender: Any?) { if canZoom { state.zoomOut() } }
     @objc func pixlokActualSize(_ sender: Any?) { if canZoom { state.actualSize() } }
     @objc func pixlokZoomToFit(_ sender: Any?) { if canZoom { state.fit() } }
     @objc func pixlokRotateLeft(_ sender: Any?) {
         if let session = editSession { if session.source != nil { session.rotate(clockwise: false) } }
+        else if let pdf = pdfSession { pdf.rotatePages(clockwise: false) }
         else if canTransform { state.rotateLeft() }
     }
     @objc func pixlokRotateRight(_ sender: Any?) {
         if let session = editSession { if session.source != nil { session.rotate(clockwise: true) } }
+        else if let pdf = pdfSession { pdf.rotatePages(clockwise: true) }
         else if canTransform { state.rotateRight() }
     }
+    @objc func pixlokPrint(_ sender: Any?) { editHost.livePDF?.print(in: window) }
+    @objc func pixlokFind(_ sender: Any?) {
+        guard let pdf = editHost.livePDF else { NSSound.beep(); return }
+        NotificationCenter.default.post(name: .pixlokFind, object: pdf)
+    }
+    @objc func pixlokFindNext(_ sender: Any?) { editHost.livePDF?.step(1) }
+    @objc func pixlokFindPrevious(_ sender: Any?) { editHost.livePDF?.step(-1) }
     @objc func pixlokToggleInfo(_ sender: Any?) { if currentURL != nil && !isEditing { state.showInfo.toggle() } }
     @objc func pixlokToggleSlideshow(_ sender: Any?) { if !isEditing { viewerToggleSlideshow() } }
     @objc func pixlokNext(_ sender: Any?) { if !isEditing { model.browser?.next() } }
@@ -307,7 +322,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     @objc func pixlokCancelEditing(_ sender: Any?) { editRequestCancel() }
     @objc func pixlokRevertToOriginal(_ sender: Any?) { editRequestRevert() }
 
-    var isEditing: Bool { editSession != nil }
+    var isEditing: Bool { editSession != nil || pdfSession != nil }
 
     /// Edit mode is offered for single-frame raster images ImageEditPipeline can read.
     var canEditCurrent: Bool {
@@ -331,7 +346,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
             return canZoom
         case #selector(pixlokRotateLeft(_:)), #selector(pixlokRotateRight(_:)):
             if let session = editSession { return session.source != nil && !session.isSaving }
+            if let pdf = pdfSession { return !pdf.isSaving }
             return canTransform
+        case #selector(pixlokPrint(_:)), #selector(pixlokFind(_:)):
+            return currentCategory == .pdf && editHost.livePDF?.document?.isLocked == false
+        case #selector(pixlokFindNext(_:)), #selector(pixlokFindPrevious(_:)):
+            return currentCategory == .pdf && !(editHost.livePDF?.matches.isEmpty ?? true)
         case #selector(pixlokToggleInfo(_:)):
             item.title = state.showInfo ? "Hide Info" : "Show Info"
             return hasFile && !editing
@@ -343,8 +363,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         case #selector(pixlokMoveToTrash(_:)):
             return hasFile && !editing
         case #selector(pixlokEditImage(_:)):
+            item.title = currentCategory == .pdf ? "Edit PDF (Annotate, Sign, Fill In)…" : "Edit Image…"
             return !editing && !state.isSlideshowRunning && canEditCurrent
         case #selector(pixlokSaveEdits(_:)):
+            if let pdf = pdfSession { return !pdf.isSaving }
             return editSession?.canSave ?? false
         case #selector(pixlokCancelEditing(_:)):
             return editing && !isSavingEdits
@@ -382,6 +404,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         let browser = model.browser
 
         if let session = editSession { return handleEditKeyDown(event, session: session, mods: mods) }
+        if let pdf = pdfSession { return handlePDFEditKeyDown(event, session: pdf, mods: mods) }
 
         if mods.isEmpty {
             switch event.keyCode {
@@ -449,6 +472,56 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         return false
     }
 
+    /// Keys while editing a PDF: Delete removes the selected annotation, arrows nudge it
+    /// (Shift: 10 pt), Esc steps back (tool → selection → leave edit mode). Folder navigation,
+    /// trash and slideshow keys are swallowed; ↑ ↓ Page Up/Down Home/End scroll the document
+    /// when nothing is selected.
+    private func handlePDFEditKeyDown(_ event: NSEvent, session: PDFEditSession,
+                                      mods: NSEvent.ModifierFlags) -> Bool {
+        let shiftOnly = mods.subtracting(.shift).isEmpty
+        if shiftOnly, let a = session.selected, let page = a.page {
+            let step: CGFloat = mods.contains(.shift) ? 10 : 1
+            var d = CGVector.zero
+            switch event.keyCode {
+            case 123: d.dx = -step
+            case 124: d.dx = step
+            case 125: d.dy = -step
+            case 126: d.dy = step
+            default: break
+            }
+            if d != .zero {
+                // Arrows move on screen; convert for rotated pages.
+                let v = (page.rotation % 360 + 360) % 360
+                let dd: CGVector
+                switch v {
+                case 90: dd = CGVector(dx: -d.dy, dy: d.dx)
+                case 180: dd = CGVector(dx: -d.dx, dy: -d.dy)
+                case 270: dd = CGVector(dx: d.dy, dy: -d.dx)
+                default: dd = d
+                }
+                let old = a.bounds
+                a.bounds = old.offsetBy(dx: dd.dx, dy: dd.dy)
+                session.commitBounds(of: a, from: old, name: "Move")
+                return true
+            }
+        }
+        guard mods.isEmpty else { return false }
+        switch event.keyCode {
+        case 53:                                                         // Esc
+            if session.tool != .select { session.tool = .select }
+            else if session.selected != nil { session.selected = nil }
+            else { editRequestCancel() }
+            return true
+        case 51, 117:                                                    // Delete, Forward Delete
+            if session.selected != nil { session.deleteSelected() }
+            return true
+        case 123, 124, 96:                                               // ← → F5: no folder navigation
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Ends the compare hold on key-up of the physical key that started it, whatever the
     /// modifiers are at release (Shift pressed mid-hold would otherwise report "|").
     private func handleKeyUp(_ event: NSEvent) -> Bool {
@@ -464,6 +537,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     func editBegin() {
         guard !isEditing, let url = currentURL, editHost.canEdit(url), let window, window.attachedSheet == nil else { return }
         if slideshow?.isRunning == true { slideshow?.stop() }
+        if currentCategory == .pdf { pdfEditBegin(url: url); return }
         // What you see is what gets saved: seed the edit with the current view rotation.
         var seed = EditRecipe()
         seed.rotationQuarterTurns = ((state.rotationQuarterTurns % 4) + 4) % 4
@@ -484,6 +558,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     }
 
     func editSave() {
+        if pdfSession != nil { pdfSave(); return }
         guard let session = editSession, !session.isSaving, session.source != nil else { return }
         if session.isCropping { session.commitCrop() }
         guard !session.recipe.isIdentity else { endEditing(); return }
@@ -533,6 +608,16 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     /// Leaves edit mode without saving.
     func endEditing() {
+        if let pdf = pdfSession {
+            pdf.selected = nil
+            let reload = pdf.isDirty || pdf.changeCount != 0
+            editHost.pdfSession = nil
+            // Unsaved changes live in the shown document: reload it from disk to drop them.
+            if reload {
+                editHost.contentRevision += 1
+            }
+            return
+        }
         guard let session = editSession else { return }
         session.cancel()
         session.showingOriginal = false
@@ -580,6 +665,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
             self?.window?.close()
         }
         return false
+    }
+
+    /// ⌘Z / ⇧⌘Z in PDF edit mode undo annotation and page changes (text fields keep their own).
+    func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? {
+        pdfSession?.undoManager ?? windowUndoManager
     }
 
     func windowDidResignKey(_ notification: Notification) {

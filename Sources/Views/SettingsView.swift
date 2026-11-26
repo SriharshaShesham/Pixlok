@@ -128,8 +128,8 @@ struct SettingsFileTypesSection: View {
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .leading), count: 4)
 
     var body: some View {
-        SettingsSection(title: "File types to show",
-                        subtitle: "Only checked types appear when browsing a folder.") {
+        SettingsSection(title: "Files Pixlok opens",
+                        subtitle: "Ticked types show up as you browse a folder, and are the ones Make default viewer applies to.") {
             LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
                 ForEach(FormatRegistry.all) { format in
                     Toggle(isOn: binding(for: format)) {
@@ -416,7 +416,7 @@ struct SettingsDefaultViewerSection: View {
         SettingsSection(title: "Default viewer") {
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Open the checked file types with Pixlok when double-clicked in Finder.")
+                    Text("Double-clicking a ticked type in Finder opens it in Pixlok.")
                         .foregroundStyle(.white)
                         .fixedSize(horizontal: false, vertical: true)
                     Text("macOS may ask you to confirm each file type. Choose “Use” to switch.")
@@ -427,7 +427,7 @@ struct SettingsDefaultViewerSection: View {
                 }
                 Spacer(minLength: 8)
                 Button {
-                    makeDefault()
+                    confirmMakeDefault()
                 } label: {
                     HStack(spacing: 6) {
                         if isWorking { ProgressView().controlSize(.small) }
@@ -461,6 +461,31 @@ struct SettingsDefaultViewerSection: View {
             Text("Checking current defaults…")
                 .font(.system(size: 11.5))
                 .foregroundStyle(SettingsPalette.secondaryText)
+        }
+    }
+
+    /// macOS asks once per file type that changes; say how many (and which) before starting.
+    private func confirmMakeDefault() {
+        let formats = settings.enabledFormats
+        let pending = DefaultAppService.typesToChange(for: formats)
+        if pending.count <= 1 { makeDefault(); return }
+        var names: [String] = []
+        for name in pending.map(DefaultAppService.displayName) where !names.contains(name) { names.append(name) }
+        let alert = NSAlert()
+        alert.messageText = "macOS will ask you \(pending.count) times"
+        var info = "It confirms each file type separately. Choose “Use “Pixlok”” for the ones you want.\n\n"
+            + names.joined(separator: "  ")
+        if formats.contains(where: { $0.id == "raw" }) {
+            info += "\n\nCamera RAW alone covers \(FormatRegistry.format(id: "raw")?.extensions.count ?? 0) camera formats. "
+                + "Untick it under Files Pixlok opens first if you don’t want Pixlok for those."
+        }
+        alert.informativeText = info
+        alert.addButton(withTitle: "Continue")
+        alert.addButton(withTitle: "Cancel")
+        if let window = NSApp.keyWindow {
+            alert.beginSheetModal(for: window) { if $0 == .alertFirstButtonReturn { makeDefault() } }
+        } else if alert.runModal() == .alertFirstButtonReturn {
+            makeDefault()
         }
     }
 

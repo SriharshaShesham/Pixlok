@@ -24,6 +24,9 @@ import SwiftUI
 ///   Pixlok --selftest-pdf <empty scratch folder>
 ///       Builds PDF fixtures there and checks loading, unlocking, info fields, listing and the
 ///       new-format settings migration (throwaway preferences suite).
+///   Pixlok --selftest-pdf-edit <empty scratch folder>
+///       PDF edit mode end to end: annotations, signature, forms, pages, undo, metadata, password,
+///       save with original/ backup, re-save, flattened copy.
 ///   Pixlok --selftest-update [--offline]
 ///       Version comparison, release-JSON parsing and notes tidying; without --offline also fetches
 ///       the latest GitHub release and prints it.
@@ -59,6 +62,9 @@ enum SelfTest {
         case "--selftest-originals":
             guard args.count >= 3 else { fail("usage: --selftest-originals <empty scratch folder>") }
             exit(OriginalsSelfTest.runOriginals(root: args[2]))
+        case "--selftest-pdf-edit":
+            guard args.count >= 3 else { fail("usage: --selftest-pdf-edit <empty scratch folder>") }
+            exit(PDFEditSelfTest.run(root: args[2]))
         case "--selftest-update":
             let offline = args.contains("--offline")
             Task { @MainActor in exit(await updateSelfTest(offline: offline)) }

@@ -437,6 +437,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.informativeText = """
         ⌘O   Open file or folder      ⌘⇧O   Open folder
         ⌘N   New window      ⌘T   New tab
+        ⌘F   Search a PDF (⌘G next)      ⌘P   Print a PDF
         ← →   Previous / next file
         Home / End   First / last file
         Space   Next image (play/pause for videos)
@@ -447,6 +448,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ⌘I   File info
         E or ⌘⇧E   Edit image (brightness, exposure, crop…)
             ⌘S Save · Esc Cancel · hold \\ to compare · Return applies crop
+        PDF edit (E): ⌘Z undo · Delete removes the selection · arrows nudge · Esc steps back
         ⌘E   Edit in default editor
         Delete or ⌘⌫   Move to Trash
         ⌃⌘F   Full screen

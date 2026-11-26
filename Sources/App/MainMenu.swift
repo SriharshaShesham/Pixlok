@@ -12,6 +12,7 @@ enum MainMenu {
         let main = NSMenu()
         main.addItem(submenu(appMenu(delegate)))
         main.addItem(submenu(fileMenu(delegate)))
+        main.addItem(submenu(editMenu()))
         main.addItem(submenu(viewMenu()))
         main.addItem(submenu(imageMenu()))
         main.addItem(submenu(goMenu()))
@@ -70,7 +71,27 @@ enum MainMenu {
         m.addItem(.separator())
         m.addItem(item("Move to Trash", #selector(ViewerWindowController.pixlokMoveToTrash(_:)), "\u{8}"))
         m.addItem(.separator())
+        m.addItem(item("Print…", #selector(ViewerWindowController.pixlokPrint(_:)), "p"))
+        m.addItem(.separator())
         m.addItem(item("Close", #selector(NSWindow.performClose(_:)), "w"))
+        return m
+    }
+
+    /// Standard text editing (text boxes, notes, form fields, search) plus undo for PDF edits
+    /// and Find for PDFs.
+    private static func editMenu() -> NSMenu {
+        let m = NSMenu(title: "Edit")
+        m.addItem(item("Undo", Selector(("undo:")), "z"))
+        m.addItem(item("Redo", Selector(("redo:")), "z", [.command, .shift]))
+        m.addItem(.separator())
+        m.addItem(item("Cut", #selector(NSText.cut(_:)), "x"))
+        m.addItem(item("Copy", #selector(NSText.copy(_:)), "c"))
+        m.addItem(item("Paste", #selector(NSText.paste(_:)), "v"))
+        m.addItem(item("Select All", #selector(NSText.selectAll(_:)), "a"))
+        m.addItem(.separator())
+        m.addItem(item("Find…", #selector(ViewerWindowController.pixlokFind(_:)), "f"))
+        m.addItem(item("Find Next", #selector(ViewerWindowController.pixlokFindNext(_:)), "g"))
+        m.addItem(item("Find Previous", #selector(ViewerWindowController.pixlokFindPrevious(_:)), "g", [.command, .shift]))
         return m
     }
 

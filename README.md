@@ -25,7 +25,7 @@ WebKit, ModelIO/SceneKit, AVKit and PDFKit). It has no third-party dependencies.
 - Sorted by date modified (newest first) by default. Sort by date modified, date created, name, size or type,
   ascending or descending.
 - Optional wrap-around at the end of the folder.
-- Choose which file types are shown; all are on by default.
+- Choose which kinds of files Pixlok opens (Settings → Files Pixlok opens); all are on by default.
 - Open another file or folder from the **Open** button in the top bar, in the same window, a new tab or a new
   window. A file from a different folder opens in a new window by default (or a tab, or the current window:
   Settings → Browsing).
@@ -46,7 +46,16 @@ WebKit, ModelIO/SceneKit, AVKit and PDFKit). It has no third-party dependencies.
 - **STL** 3D models shown as an orbitable model: drag to orbit, scroll to zoom, Shift-drag to pan.
 - **Video** playback (MP4, MOV, M4V) inline, with Space for play/pause.
 - **PDF** documents: scroll (or use ↑ / ↓) through all pages, zoom and rotate, with a page counter;
-  password-protected PDFs can be unlocked. The Info panel shows the page count and page size.
+  password-protected PDFs can be unlocked. The Info panel shows the page count and page size. A page
+  thumbnails / table-of-contents sidebar, single or two-page layouts, search (⌘F) and printing (⌘P).
+- **PDF editing** (press E): highlight, underline and strike out text; add text boxes, notes, freehand
+  drawings, rectangles, ovals, lines and arrows; fill in forms; **sign** with a signature you draw, type or
+  photograph (saved on your Mac for next time); rotate, reorder, duplicate, insert (from other PDFs or
+  pictures), extract and delete pages; edit the title and author; add, change or remove a password.
+  Everything can be undone (⌘Z). **Save** keeps the untouched PDF in `original/`, like picture edits;
+  **Save a Copy** can also flatten annotations, make scanned text searchable, or reduce the file size.
+  Annotations are standard PDF annotations, so Preview, Acrobat and browsers show them too. Signatures
+  are pictures of your signature, not certificate-based digital signatures.
 
 **Editing (non-destructive)**
 
@@ -67,7 +76,7 @@ WebKit, ModelIO/SceneKit, AVKit and PDFKit). It has no third-party dependencies.
 - **Edit in** your favourite external editor (GIMP, Photoshop, Pixelmator, Affinity, ...), picked from the apps
   installed on your Mac. ⌘E opens the current file in your primary editor.
 - **Open With** any other app that can open the file.
-- **Make default viewer**: one click in Settings makes Pixlok the default app for the checked file types. macOS
+- **Make default viewer**: one click in Settings makes Pixlok the default app for the types ticked under **Files Pixlok opens**. macOS
   may ask you to confirm each type.
 
 ## Supported formats
@@ -147,6 +156,8 @@ anything on its own, and it sends nothing but that one request. Turn it off, or 
 | Edit in external editor | ⌘E |
 | Open file / folder | ⌘O / ⌘⇧O |
 | New window / tab | ⌘N / ⌘T |
+| Search a PDF | ⌘F, then ⌘G / ⌘⇧G |
+| Print a PDF | ⌘P |
 | Settings | ⌘, |
 
 **While editing**
@@ -159,6 +170,16 @@ anything on its own, and it sends nothing but that one request. Turn it off, or 
 | Apply crop | Return |
 | Compare with the original | hold `\` |
 | Rotate left / right | ⌘L / ⌘R |
+
+**While editing a PDF**
+
+| Action | Shortcut |
+| ------ | -------- |
+| Undo / redo | ⌘Z / ⌘⇧Z |
+| Delete the selected annotation | Delete |
+| Nudge it (10 pt with Shift) | arrow keys |
+| Back to the Select tool, deselect, leave | Esc |
+| Save | ⌘S |
 
 ## Build from source
 

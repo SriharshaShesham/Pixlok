@@ -8,7 +8,7 @@ enum DefaultAppService {
         case noTypes
         var errorDescription: String? {
             switch self {
-            case .noTypes: return "No file types are selected. Check at least one type under “File types to show”."
+            case .noTypes: return "No file types are selected. Tick at least one type under “Files Pixlok opens”."
             }
         }
     }
@@ -16,10 +16,15 @@ enum DefaultAppService {
     /// Sets this app as default for every UTType of `formats`.
     /// `completion` runs on the main queue with the number of types set, or the first error
     /// (if nothing succeeded). On macOS 26.4+ the system asks the user to confirm each change.
+    /// Types already opening with Pixlok are skipped, so macOS only asks about the ones that change.
     static func makeDefault(for formats: [FileFormat], completion: @escaping (Result<Int, Error>) -> Void) {
-        let types = types(for: formats)
-        guard !types.isEmpty else {
+        guard !types(for: formats).isEmpty else {
             DispatchQueue.main.async { completion(.failure(DefaultAppError.noTypes)) }
+            return
+        }
+        let types = typesToChange(for: formats)
+        guard !types.isEmpty else {
+            DispatchQueue.main.async { completion(.success(0)) }
             return
         }
         let appURL = Bundle.main.bundleURL
@@ -53,14 +58,26 @@ enum DefaultAppService {
     static func isDefault(for format: FileFormat) -> Bool {
         let types = types(for: [format])
         guard !types.isEmpty else { return false }
+        return types.allSatisfy(opensWithSelf)
+    }
+
+    /// The UTTypes of `formats` that don't open with Pixlok yet; each one is a separate macOS prompt.
+    static func typesToChange(for formats: [FileFormat]) -> [UTType] {
+        types(for: formats).filter { !opensWithSelf($0) }
+    }
+
+    /// How a type is named in macOS's prompt: its file extension (".cr3"), else its description.
+    static func displayName(of type: UTType) -> String {
+        if let ext = type.preferredFilenameExtension { return "." + ext }
+        return type.localizedDescription ?? type.identifier
+    }
+
+    private static func opensWithSelf(_ type: UTType) -> Bool {
+        guard let app = NSWorkspace.shared.urlForApplication(toOpen: type) else { return false }
         let selfPath = Bundle.main.bundleURL.standardizedFileURL.resolvingSymlinksInPath().path
-        let selfID = Bundle.main.bundleIdentifier
-        return types.allSatisfy { type in
-            guard let app = NSWorkspace.shared.urlForApplication(toOpen: type) else { return false }
-            if app.standardizedFileURL.resolvingSymlinksInPath().path == selfPath { return true }
-            if let selfID, Bundle(url: app)?.bundleIdentifier == selfID { return true }
-            return false
-        }
+        if app.standardizedFileURL.resolvingSymlinksInPath().path == selfPath { return true }
+        if let selfID = Bundle.main.bundleIdentifier, Bundle(url: app)?.bundleIdentifier == selfID { return true }
+        return false
     }
 
     /// Declared types plus the concrete types of each extension (e.g. com.canon.cr2-raw-image

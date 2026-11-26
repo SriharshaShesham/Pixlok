@@ -241,79 +241,101 @@ enum EditSaveService {
         }
 
         // 2. Swap files into place, rolling back on any error.
+        if savedURL == url {
+            return try commitReplacing(url, withTemp: tempURL, prior: prior)
+        }
         let origFolder = originalFolder(for: url)
         var createdFolder = false
         // Only ever removes an EMPTY folder (rmdir), so a stranded original can never be deleted.
         func cleanupFolder() { if createdFolder { _ = rmdir(origFolder.path) } }
 
         do {
-            if savedURL == url {
-                if let prior, let priorOriginal {
-                    // Already edited by us: original/ already holds the true original.
-                    _ = try fm.replaceItemAt(url, withItemAt: tempURL)
-                    // The edited file's identity changed; refresh the record (best effort: if this
-                    // fails the next save simply makes a fresh backup, nothing is lost).
-                    try? putRecord(edited: url, source: prior.record.source, backup: priorOriginal, folder: folder)
-                    return (EditSaveResult(savedURL: url, originalURL: priorOriginal), [url])
-                }
-                createdFolder = try ensureFolder(origFolder)
-                let origURL = freeBackupURL(for: url.lastPathComponent, in: origFolder)
-                // Keep the untouched file's inode in original/ (hard link), then atomically replace
-                // the visible path. If hard links aren't supported, fall back to move + move.
-                // The ownership marker is set only after the swap: before it, both names share an inode.
-                if (try? fm.linkItem(at: url, to: origURL)) != nil {
-                    do {
-                        _ = try fm.replaceItemAt(url, withItemAt: tempURL)
-                    } catch {
-                        try? fm.removeItem(at: origURL)   // unlink only; `url` still holds the original
-                        throw error
-                    }
-                } else {
-                    try fm.moveItem(at: url, to: origURL)
-                    do { try fm.moveItem(at: tempURL, to: url) } catch {
-                        try? fm.moveItem(at: origURL, to: url)
-                        throw error
-                    }
-                }
-                markOwned(origURL)
-                do {
-                    try putRecord(edited: url, source: url.lastPathComponent, backup: origURL, folder: folder)
-                } catch {
-                    // Put the untouched file back at its path (the edited version is dropped).
-                    // If even that fails the original stays in original/ rather than risk losing it.
-                    unmarkOwned(origURL)
-                    _ = try? fm.replaceItemAt(url, withItemAt: origURL)
-                    throw error
-                }
-                return (EditSaveResult(savedURL: url, originalURL: origURL), [url])
-            } else {
-                // Different output file (format not writable).
-                try fm.moveItem(at: tempURL, to: savedURL)
-                if let prior, let priorOriginal {
-                    // The source already has an original; it stays in place, just record the edit.
-                    do { try putRecord(edited: savedURL, source: prior.record.source, backup: priorOriginal, folder: folder) }
-                    catch { try? fm.removeItem(at: savedURL); throw error }
-                    return (EditSaveResult(savedURL: savedURL, originalURL: priorOriginal), [savedURL])
-                }
-                let origURL: URL
-                do {
-                    createdFolder = try ensureFolder(origFolder)
-                    origURL = freeBackupURL(for: url.lastPathComponent, in: origFolder)
-                    try fm.moveItem(at: url, to: origURL)
-                } catch {
-                    try? fm.removeItem(at: savedURL); throw error
-                }
-                markOwned(origURL)
-                do {
-                    try putRecord(edited: savedURL, source: url.lastPathComponent, backup: origURL, folder: folder)
-                } catch {
-                    unmarkOwned(origURL)
-                    try? fm.moveItem(at: origURL, to: url)
-                    try? fm.removeItem(at: savedURL)
-                    throw error
-                }
-                return (EditSaveResult(savedURL: savedURL, originalURL: origURL), [savedURL, url])
+            // Different output file (format not writable).
+            try fm.moveItem(at: tempURL, to: savedURL)
+            if let prior, let priorOriginal {
+                // The source already has an original; it stays in place, just record the edit.
+                do { try putRecord(edited: savedURL, source: prior.record.source, backup: priorOriginal, folder: folder) }
+                catch { try? fm.removeItem(at: savedURL); throw error }
+                return (EditSaveResult(savedURL: savedURL, originalURL: priorOriginal), [savedURL])
             }
+            let origURL: URL
+            do {
+                createdFolder = try ensureFolder(origFolder)
+                origURL = freeBackupURL(for: url.lastPathComponent, in: origFolder)
+                try fm.moveItem(at: url, to: origURL)
+            } catch {
+                try? fm.removeItem(at: savedURL); throw error
+            }
+            markOwned(origURL)
+            do {
+                try putRecord(edited: savedURL, source: url.lastPathComponent, backup: origURL, folder: folder)
+            } catch {
+                unmarkOwned(origURL)
+                try? fm.moveItem(at: origURL, to: url)
+                try? fm.removeItem(at: savedURL)
+                throw error
+            }
+            return (EditSaveResult(savedURL: savedURL, originalURL: origURL), [savedURL, url])
+        } catch {
+            try? fm.removeItem(at: tempURL)
+            cleanupFolder()
+            throw error
+        }
+    }
+
+    /// Replaces `url` with the finished file at `tempURL` (same folder), keeping the untouched file:
+    /// on the first save it goes to `original/<name>` (owner mark + record); later saves reuse that
+    /// backup. Used by image edits saved in their own format and by PDF saves. Rolls back on error
+    /// and removes `tempURL` when it wasn't used.
+    static func commitReplacing(_ url: URL, withTemp tempURL: URL,
+                                prior: (record: EditRecord, backup: URL)?) throws -> (EditSaveResult, [URL]) {
+        let fm = FileManager.default
+        let folder = url.deletingLastPathComponent()
+        let priorOriginal = prior?.backup
+        let origFolder = originalFolder(for: url)
+        var createdFolder = false
+        // Only ever removes an EMPTY folder (rmdir), so a stranded original can never be deleted.
+        func cleanupFolder() { if createdFolder { _ = rmdir(origFolder.path) } }
+
+        do {
+            if let prior, let priorOriginal {
+                // Already edited by us: original/ already holds the true original.
+                _ = try fm.replaceItemAt(url, withItemAt: tempURL)
+                // The edited file's identity changed; refresh the record (best effort: if this
+                // fails the next save simply makes a fresh backup, nothing is lost).
+                try? putRecord(edited: url, source: prior.record.source, backup: priorOriginal, folder: folder)
+                return (EditSaveResult(savedURL: url, originalURL: priorOriginal), [url])
+            }
+            createdFolder = try ensureFolder(origFolder)
+            let origURL = freeBackupURL(for: url.lastPathComponent, in: origFolder)
+            // Keep the untouched file's inode in original/ (hard link), then atomically replace
+            // the visible path. If hard links aren't supported, fall back to move + move.
+            // The ownership marker is set only after the swap: before it, both names share an inode.
+            if (try? fm.linkItem(at: url, to: origURL)) != nil {
+                do {
+                    _ = try fm.replaceItemAt(url, withItemAt: tempURL)
+                } catch {
+                    try? fm.removeItem(at: origURL)   // unlink only; `url` still holds the original
+                    throw error
+                }
+            } else {
+                try fm.moveItem(at: url, to: origURL)
+                do { try fm.moveItem(at: tempURL, to: url) } catch {
+                    try? fm.moveItem(at: origURL, to: url)
+                    throw error
+                }
+            }
+            markOwned(origURL)
+            do {
+                try putRecord(edited: url, source: url.lastPathComponent, backup: origURL, folder: folder)
+            } catch {
+                // Put the untouched file back at its path (the edited version is dropped).
+                // If even that fails the original stays in original/ rather than risk losing it.
+                unmarkOwned(origURL)
+                _ = try? fm.replaceItemAt(url, withItemAt: origURL)
+                throw error
+            }
+            return (EditSaveResult(savedURL: url, originalURL: origURL), [url])
         } catch {
             try? fm.removeItem(at: tempURL)
             cleanupFolder()

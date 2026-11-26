@@ -10,7 +10,7 @@ enum MediaCategory: String, Codable {
     case pdf      // PDFKit
 }
 
-/// One user-toggleable file type in Settings ("File types to show").
+/// One user-toggleable file type in Settings ("Files Pixlok opens").
 struct FileFormat: Identifiable, Hashable {
     let id: String            // stable key stored in UserDefaults
     let label: String         // shown in Settings
@@ -31,7 +31,7 @@ enum FormatRegistry {
         FileFormat(id: "avif", label: "AVIF", extensions: ["avif"], category: .raster, utTypes: ["public.avif"]),
         FileFormat(id: "jxl", label: "JPEG XL", extensions: ["jxl"], category: .raster, utTypes: ["public.jpeg-xl"]),
         FileFormat(id: "psd", label: "PSD", extensions: ["psd"], category: .raster, utTypes: ["com.adobe.photoshop-image"]),
-        FileFormat(id: "raw", label: "RAW", extensions: ["dng", "cr2", "cr3", "nef", "nrw", "arw", "orf", "rw2", "raf", "srw", "pef", "rwl", "3fr", "erf", "kdc", "mrw", "x3f"], category: .raster, utTypes: ["public.camera-raw-image"]),
+        FileFormat(id: "raw", label: "Camera RAW", extensions: ["dng", "cr2", "cr3", "nef", "nrw", "arw", "orf", "rw2", "raf", "srw", "pef", "rwl", "3fr", "erf", "kdc", "mrw", "x3f"], category: .raster, utTypes: ["public.camera-raw-image"]),
         FileFormat(id: "ico", label: "ICO", extensions: ["ico"], category: .raster, utTypes: ["com.microsoft.ico"]),
         FileFormat(id: "svg", label: "SVG", extensions: ["svg"], category: .svg, utTypes: ["public.svg-image"]),
         FileFormat(id: "stl", label: "STL", extensions: ["stl"], category: .model3D, utTypes: ["public.standard-tesselated-geometry-format"]),
